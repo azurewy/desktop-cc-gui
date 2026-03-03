@@ -271,6 +271,60 @@ describe("threadItems", () => {
     expect(message).toBeDefined();
   });
 
+  it("maps plan and planImplementation items into timeline tool entries", () => {
+    const proposed = buildConversationItem({
+      id: "plan-1",
+      type: "plan",
+      actionId: "implement-plan:turn-1",
+      steps: [
+        { step: "Inspect codebase", status: "in_progress" },
+        { step: "Draft patch", status: "pending" },
+      ],
+    });
+    expect(proposed).toEqual({
+      id: "plan-1",
+      kind: "tool",
+      toolType: "proposed-plan",
+      title: "Proposed Plan",
+      detail: "implement-plan:turn-1",
+      status: "",
+      output: "- [in_progress] Inspect codebase\n- [pending] Draft patch",
+    });
+
+    const implementation = buildConversationItem({
+      id: "plan-impl-1",
+      type: "planImplementation",
+      text: "Apply patch and verify",
+    });
+    expect(implementation).toEqual({
+      id: "plan-impl-1",
+      kind: "tool",
+      toolType: "plan-implementation",
+      title: "Plan Implementation",
+      detail: "",
+      status: "",
+      output: "Apply patch and verify",
+    });
+  });
+
+  it("extracts implement-plan action id from nested action payload", () => {
+    const proposed = buildConversationItem({
+      id: "plan-2",
+      type: "plan",
+      action: { id: "implement-plan:turn-2" },
+      steps: [{ step: "Run tests", status: "pending" }],
+    });
+    expect(proposed).toEqual({
+      id: "plan-2",
+      kind: "tool",
+      toolType: "proposed-plan",
+      title: "Proposed Plan",
+      detail: "implement-plan:turn-2",
+      status: "",
+      output: "- [pending] Run tests",
+    });
+  });
+
   it("preserves distinct read paths that share the same basename", () => {
     const items: ConversationItem[] = [
       {
@@ -754,6 +808,41 @@ go lang`,
       expect(item.role).toBe("user");
       expect(item.text).toBe("Please $Review");
       expect(item.images).toEqual(["https://example.com/image.png"]);
+    }
+  });
+
+  it("strips plan fallback directive prefix from user message content", () => {
+    const item = buildConversationItemFromThreadItem({
+      type: "userMessage",
+      id: "msg-plan-fallback-1",
+      content: [
+        {
+          type: "text",
+          text:
+            "Execution policy (plan mode): planning-only. If blocker appears, call requestUserInput.\n\nUser request: 只改前端，不改后端。",
+        },
+      ],
+    });
+    expect(item).not.toBeNull();
+    if (item && item.kind === "message") {
+      expect(item.role).toBe("user");
+      expect(item.text).toBe("只改前端，不改后端。");
+      expect(item.collaborationMode).toBe("plan");
+    }
+  });
+
+  it("extracts collaboration mode metadata from user message payload", () => {
+    const item = buildConversationItemFromThreadItem({
+      type: "userMessage",
+      id: "msg-mode-meta-1",
+      mode: "default",
+      content: [{ type: "text", text: "保持默认模式" }],
+    });
+    expect(item).not.toBeNull();
+    if (item && item.kind === "message") {
+      expect(item.role).toBe("user");
+      expect(item.text).toBe("保持默认模式");
+      expect(item.collaborationMode).toBe("code");
     }
   });
 

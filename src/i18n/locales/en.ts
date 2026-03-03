@@ -974,6 +974,8 @@ const en = {
     collaborationMode: "Collaboration mode",
     collaborationCode: "Code",
     collaborationPlan: "Plan",
+    planModeToggle: "Plan mode",
+    planModeShort: "Plan",
     collaborationModeDisabledHint: "Enable collaboration modes in Settings > Experimental",
     collaborationPlanHint: "Plan mode: interactive questions (not update_plan).",
     collaborationCodeInlineHint: "{{mode}} · directly implement code changes",
@@ -991,6 +993,7 @@ const en = {
     readOnly: "Read only",
     onRequest: "On-Request",
     fullAccess: "Full access",
+    liveUsage: "Live usage",
     contextFree: "Context free",
     context: "Context",
     contextUsageAriaLabel: "Context usage: {{percent}} used, {{used}} / {{total}}",
@@ -2862,6 +2865,7 @@ const en = {
     hideSecret: "Hide",
     submitFailed: "Submit failed. Please retry.",
     submit: "Submit",
+    submitted: "Submitted",
   },
 
   askUserQuestion: {

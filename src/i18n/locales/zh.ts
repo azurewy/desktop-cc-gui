@@ -965,6 +965,8 @@ const zh = {
     collaborationMode: "协作模式",
     collaborationCode: "Code",
     collaborationPlan: "Plan",
+    planModeToggle: "计划模式",
+    planModeShort: "计划",
     collaborationModeDisabledHint: "在 设置 > Experimental 中启用协作模式",
     collaborationPlanHint: "Plan mode：交互提问（非 update_plan）。",
     collaborationCodeInlineHint: "{{mode}} · 直接执行改代码",
@@ -982,6 +984,7 @@ const zh = {
     readOnly: "只读",
     onRequest: "按需",
     fullAccess: "完全访问",
+    liveUsage: "实时用量",
     contextFree: "上下文剩余",
     context: "上下文",
     contextUsageAriaLabel: "上下文使用量：已使用 {{percent}}，{{used}} / {{total}}",
@@ -2807,6 +2810,7 @@ const zh = {
     hideSecret: "隐藏",
     submitFailed: "提交失败，请重试。",
     submit: "提交",
+    submitted: "已提交",
   },
 
   askUserQuestion: {
