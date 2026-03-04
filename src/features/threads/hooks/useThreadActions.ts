@@ -67,6 +67,50 @@ type UseThreadActionsOptions = {
   useUnifiedHistoryLoader?: boolean;
 };
 
+const THREAD_LIST_TARGET_COUNT = 50;
+const THREAD_LIST_PAGE_SIZE = 50;
+const THREAD_LIST_MAX_EMPTY_PAGES = 5;
+const THREAD_LIST_MAX_EMPTY_PAGES_WITH_ACTIVITY = 20;
+const THREAD_LIST_MAX_TOTAL_PAGES = 40;
+const THREAD_LIST_MAX_EMPTY_PAGES_LOAD_OLDER = 10;
+
+function normalizeComparableWorkspacePath(path: string): string {
+  return normalizeRootPath(path).trim();
+}
+
+function buildWorkspacePathVariants(path: string): Set<string> {
+  const normalized = normalizeComparableWorkspacePath(path);
+  const variants = new Set<string>();
+  if (!normalized) {
+    return variants;
+  }
+  variants.add(normalized);
+  if (normalized.startsWith("/private/")) {
+    variants.add(normalized.slice("/private".length));
+  } else if (normalized.startsWith("/")) {
+    variants.add(`/private${normalized}`);
+  }
+  if (/^[A-Za-z]:/.test(normalized)) {
+    variants.add(`${normalized[0].toLowerCase()}${normalized.slice(1)}`);
+    variants.add(normalized.toLowerCase());
+  }
+  return variants;
+}
+
+function matchesWorkspacePath(threadCwd: string, workspacePath: string): boolean {
+  const workspaceVariants = buildWorkspacePathVariants(workspacePath);
+  if (workspaceVariants.size === 0) {
+    return false;
+  }
+  const threadVariants = buildWorkspacePathVariants(threadCwd);
+  for (const candidate of threadVariants) {
+    if (workspaceVariants.has(candidate)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function useThreadActions({
   dispatch,
   itemsByThread,
@@ -605,7 +649,7 @@ export function useThreadActions({
       // Store workspace path for Claude session loading
       workspacePathsByIdRef.current[workspace.id] = workspace.path;
       const preserveState = options?.preserveState ?? false;
-      const workspacePath = normalizeRootPath(workspace.path);
+      const workspacePath = normalizeComparableWorkspacePath(workspace.path);
       if (!preserveState) {
         dispatch({
           type: "setThreadListLoading",
@@ -640,9 +684,11 @@ export function useThreadActions({
         const knownActivityByThread = threadActivityRef.current[workspace.id] ?? {};
         const hasKnownActivity = Object.keys(knownActivityByThread).length > 0;
         const matchingThreads: Record<string, unknown>[] = [];
-        const targetCount = 50;
-        const pageSize = 50;
-        const maxPagesWithoutMatch = hasKnownActivity ? Number.POSITIVE_INFINITY : 5;
+        const targetCount = THREAD_LIST_TARGET_COUNT;
+        const pageSize = THREAD_LIST_PAGE_SIZE;
+        const maxPagesWithoutMatch = hasKnownActivity
+          ? THREAD_LIST_MAX_EMPTY_PAGES_WITH_ACTIVITY
+          : THREAD_LIST_MAX_EMPTY_PAGES;
         let pagesFetched = 0;
         let cursor: string | null = null;
         do {
@@ -668,12 +714,38 @@ export function useThreadActions({
             (result?.nextCursor ?? result?.next_cursor ?? null) as string | null;
           matchingThreads.push(
             ...data.filter(
-              (thread) =>
-                normalizeRootPath(String(thread?.cwd ?? "")) === workspacePath,
+              (thread) => matchesWorkspacePath(String(thread?.cwd ?? ""), workspacePath),
             ),
           );
           cursor = nextCursor;
           if (matchingThreads.length === 0 && pagesFetched >= maxPagesWithoutMatch) {
+            onDebug?.({
+              id: `${Date.now()}-client-thread-list-stop-empty-pages`,
+              timestamp: Date.now(),
+              source: "client",
+              label: "thread/list stop",
+              payload: {
+                workspaceId: workspace.id,
+                reason: "too-many-empty-pages",
+                pagesFetched,
+                maxPagesWithoutMatch,
+              },
+            });
+            break;
+          }
+          if (pagesFetched >= THREAD_LIST_MAX_TOTAL_PAGES) {
+            onDebug?.({
+              id: `${Date.now()}-client-thread-list-stop-page-cap`,
+              timestamp: Date.now(),
+              source: "client",
+              label: "thread/list stop",
+              payload: {
+                workspaceId: workspace.id,
+                reason: "page-cap",
+                pagesFetched,
+                pageCap: THREAD_LIST_MAX_TOTAL_PAGES,
+              },
+            });
             break;
           }
         } while (cursor && matchingThreads.length < targetCount);
@@ -874,7 +946,7 @@ export function useThreadActions({
       if (!nextCursor) {
         return;
       }
-      const workspacePath = normalizeRootPath(workspace.path);
+      const workspacePath = normalizeComparableWorkspacePath(workspace.path);
       const existing = threadsByWorkspace[workspace.id] ?? [];
       dispatch({
         type: "setThreadListPaging",
@@ -897,9 +969,9 @@ export function useThreadActions({
           mappedTitles = {};
         }
         const matchingThreads: Record<string, unknown>[] = [];
-        const targetCount = 50;
-        const pageSize = 50;
-        const maxPagesWithoutMatch = 10;
+        const targetCount = THREAD_LIST_TARGET_COUNT;
+        const pageSize = THREAD_LIST_PAGE_SIZE;
+        const maxPagesWithoutMatch = THREAD_LIST_MAX_EMPTY_PAGES_LOAD_OLDER;
         let pagesFetched = 0;
         let cursor: string | null = nextCursor;
         do {
@@ -925,12 +997,14 @@ export function useThreadActions({
             (result?.nextCursor ?? result?.next_cursor ?? null) as string | null;
           matchingThreads.push(
             ...data.filter(
-              (thread) =>
-                normalizeRootPath(String(thread?.cwd ?? "")) === workspacePath,
+              (thread) => matchesWorkspacePath(String(thread?.cwd ?? ""), workspacePath),
             ),
           );
           cursor = next;
           if (matchingThreads.length === 0 && pagesFetched >= maxPagesWithoutMatch) {
+            break;
+          }
+          if (pagesFetched >= THREAD_LIST_MAX_TOTAL_PAGES) {
             break;
           }
         } while (cursor && matchingThreads.length < targetCount);

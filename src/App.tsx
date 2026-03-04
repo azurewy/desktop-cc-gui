@@ -716,6 +716,7 @@ function MainApp() {
     gitDiffPreloadEnabled: appSettings.preloadGitDiffs,
     isCompact,
     isTablet,
+    rightPanelCollapsed,
     activeTab,
     tabletTab,
     setActiveTab,
