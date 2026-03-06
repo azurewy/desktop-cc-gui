@@ -66,10 +66,10 @@ export const StatusPanel = memo(function StatusPanel({
         content: step.step,
         status:
           step.status === "completed"
-            ? "completed"
+            ? ("completed" as const)
             : step.status === "inProgress"
-              ? "in_progress"
-              : "pending",
+              ? ("in_progress" as const)
+              : ("pending" as const),
       }));
     }
     return todos;

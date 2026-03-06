@@ -1184,7 +1184,7 @@ describe("Messages", () => {
 
     rerender(
       <Messages
-        items={[{ ...initialItems[0], text: "新的流式内容不应打断当前复制。" }]}
+        items={[{ ...initialItems[0], text: "新的流式内容不应打断当前复制。" } as ConversationItem]}
         threadId="thread-selection-1"
         workspaceId="ws-1"
         isThinking={false}
@@ -1192,7 +1192,7 @@ describe("Messages", () => {
         selectedOpenAppId=""
         userInputRequests={[]}
         conversationState={{
-          items: [{ ...initialItems[0], text: "新的流式内容不应打断当前复制。" }],
+          items: [{ ...initialItems[0], text: "新的流式内容不应打断当前复制。" } as ConversationItem],
           plan: null,
           userInputQueue: [],
           meta: {

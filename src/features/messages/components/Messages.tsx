@@ -229,19 +229,6 @@ function logMessagesPerf(label: string, payload: Record<string, unknown>): void 
   console.info(`[messages][perf] ${label}`, payload);
 }
 
-function normalizeCollaborationModeId(
-  value: unknown,
-): "plan" | "code" | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "plan" || normalized === "code") {
-    return normalized;
-  }
-  return null;
-}
-
 function extractModeFallbackUserInput(
   text: string,
 ): { text: string; mode: "code" | "plan" | null } {
