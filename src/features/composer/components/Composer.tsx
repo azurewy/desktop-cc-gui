@@ -234,8 +234,6 @@ function isCompactedConversationItem(item: ConversationItem): boolean {
 
 function resolveCompactionState(
   items: ConversationItem[],
-  isProcessing: boolean,
-  hasUsage: boolean,
   isContextCompacting: boolean,
 ): ContextCompactionState {
   if (isContextCompacting) {
@@ -244,16 +242,12 @@ function resolveCompactionState(
   if (items.some(isCompactedConversationItem)) {
     return "compacted";
   }
-  if (isProcessing && !hasUsage) {
-    return "compacting";
-  }
   return "idle";
 }
 
 function resolveDualContextUsageModel(
   contextUsage: ThreadTokenUsage | null,
   items: ConversationItem[],
-  isProcessing: boolean,
   isContextCompacting: boolean,
 ): DualContextUsageViewModel {
   const contextWindow = Math.max(contextUsage?.modelContextWindow ?? 0, 0);
@@ -271,8 +265,6 @@ function resolveDualContextUsageModel(
     hasUsage,
     compactionState: resolveCompactionState(
       items,
-      isProcessing,
-      hasUsage,
       isContextCompacting,
     ),
   };
@@ -1091,10 +1083,9 @@ export const Composer = memo(function Composer({
       resolveDualContextUsageModel(
         contextUsage,
         items,
-        isProcessing,
         isContextCompacting,
       ),
-    [contextUsage, isContextCompacting, items, isProcessing],
+    [contextUsage, isContextCompacting, items],
   );
   const codexContextDualViewEnabled = contextDualViewEnabled && isCodexEngine;
   const shouldRenderReviewInlinePrompt =
