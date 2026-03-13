@@ -293,8 +293,11 @@ describe("Messages", () => {
     const assistantMessage = container.querySelector(".message.assistant");
     expect(reasoningBlock).toBeTruthy();
     expect(assistantMessage).toBeTruthy();
+    if (!reasoningBlock || !assistantMessage) {
+      throw new Error("expected reasoning block and assistant message");
+    }
     expect(
-      reasoningBlock?.compareDocumentPosition(assistantMessage as Node) &
+      reasoningBlock.compareDocumentPosition(assistantMessage) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
@@ -339,8 +342,11 @@ describe("Messages", () => {
     const assistantMessage = container.querySelector(".message.assistant");
     expect(reasoningBlock).toBeTruthy();
     expect(assistantMessage).toBeTruthy();
+    if (!reasoningBlock || !assistantMessage) {
+      throw new Error("expected reasoning block and assistant message");
+    }
     expect(
-      assistantMessage?.compareDocumentPosition(reasoningBlock as Node) &
+      assistantMessage.compareDocumentPosition(reasoningBlock) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
