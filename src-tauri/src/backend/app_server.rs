@@ -2267,9 +2267,19 @@ async fn check_cli_binary(bin: &str, path_env: Option<String>) -> Result<Option<
     }
 }
 
+#[allow(dead_code)]
+fn visible_console_fallback_enabled_from_env(value: Option<&str>) -> bool {
+    matches!(value, Some("1") | Some("true"))
+}
+
+#[cfg(windows)]
+fn allow_wrapper_visible_console_fallback() -> bool {
+    visible_console_fallback_enabled_from_env(env::var("CODEMOSS_SHOW_CONSOLE").ok().as_deref())
+}
+
 #[cfg(windows)]
 fn can_retry_wrapper_launch(launch_context: &CodexLaunchContext) -> bool {
-    launch_context.wrapper_kind != "direct"
+    launch_context.wrapper_kind != "direct" && allow_wrapper_visible_console_fallback()
 }
 
 #[cfg(not(windows))]
@@ -2839,8 +2849,9 @@ mod tests {
         is_repo_mutating_command_tokens, looks_like_executable_plan_text,
         looks_like_plan_blocker_prompt, looks_like_user_info_followup_prompt,
         normalize_command_tokens_from_item, should_block_request_user_input,
-        wrapper_kind_for_binary, AutoCompactionThreadState, PlanTurnState, TimedOutRequest,
-        MODE_BLOCKED_PLAN_REASON, MODE_BLOCKED_PLAN_SUGGESTION, MODE_BLOCKED_REASON,
+        visible_console_fallback_enabled_from_env, wrapper_kind_for_binary,
+        AutoCompactionThreadState, PlanTurnState, TimedOutRequest, MODE_BLOCKED_PLAN_REASON,
+        MODE_BLOCKED_PLAN_SUGGESTION, MODE_BLOCKED_REASON,
         MODE_BLOCKED_REASON_CODE_PLAN_READONLY, MODE_BLOCKED_REASON_CODE_REQUEST_USER_INPUT,
         MODE_BLOCKED_SUGGESTION,
     };
@@ -3665,5 +3676,20 @@ mod tests {
         assert!(!state.synthetic_block_active);
         assert!(!state.has_user_input_request);
         assert!(state.active_turn_id.is_none());
+    }
+
+    #[test]
+    fn visible_console_fallback_env_parser_accepts_supported_values() {
+        assert!(visible_console_fallback_enabled_from_env(Some("1")));
+        assert!(visible_console_fallback_enabled_from_env(Some("true")));
+    }
+
+    #[test]
+    fn visible_console_fallback_env_parser_rejects_other_values() {
+        assert!(!visible_console_fallback_enabled_from_env(None));
+        assert!(!visible_console_fallback_enabled_from_env(Some("0")));
+        assert!(!visible_console_fallback_enabled_from_env(Some("false")));
+        assert!(!visible_console_fallback_enabled_from_env(Some("TRUE")));
+        assert!(!visible_console_fallback_enabled_from_env(Some(" true ")));
     }
 }
