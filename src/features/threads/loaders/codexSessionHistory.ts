@@ -175,6 +175,18 @@ function buildAssistantMessageItem(payload: Record<string, unknown>, fallbackId:
   });
 }
 
+function buildUserMessageItem(payload: Record<string, unknown>, fallbackId: string) {
+  const text = asString(payload.message ?? payload.text ?? "").trim();
+  if (!text) {
+    return null;
+  }
+  return buildConversationItem({
+    id: fallbackId,
+    type: "userMessage",
+    content: [{ type: "text", text }],
+  });
+}
+
 function buildCommandExecutionItem(
   pending: PendingCommandExecution,
   payload: Record<string, unknown>,
@@ -338,6 +350,13 @@ export function parseCodexSessionHistory(input: unknown): ConversationItem[] {
 
     if (entryType === "event_msg") {
       const payloadType = asString(payload.type).trim();
+      if (payloadType === "user_message") {
+        const message = buildUserMessageItem(payload, `codex-user-message-${index + 1}`);
+        if (message) {
+          items.push(message);
+        }
+        return;
+      }
       if (payloadType === "agent_message") {
         const message = buildConversationItem({
           id: `codex-agent-message-${index + 1}`,
