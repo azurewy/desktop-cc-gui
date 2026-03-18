@@ -21,7 +21,6 @@ import { DebugPanel } from "../../debug/components/DebugPanel";
 import { PlanPanel } from "../../plan/components/PlanPanel";
 import { PanelTabs } from "../components/PanelTabs";
 import Construction from "lucide-react/dist/esm/icons/construction";
-import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
 import { TabBar } from "../../app/components/TabBar";
 import { TabletNav } from "../../app/components/TabletNav";
 import { TerminalDock } from "../../terminal/components/TerminalDock";
@@ -69,6 +68,8 @@ import type {
   TurnPlan,
   WorkspaceInfo,
 } from "../../../types";
+import { getClientStoreSync } from "../../../services/clientStorage";
+import { normalizeSpecRootInput } from "../../spec/pathUtils";
 import type { EngineDisplayInfo } from "../../engine/hooks/useEngineController";
 import type { UpdateState } from "../../update/hooks/useUpdater";
 import type { TerminalSessionState } from "../../terminal/hooks/useTerminalSession";
@@ -1031,6 +1032,16 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
   const tabBarNode = (
     <TabBar activeTab={options.activeTab} onSelect={options.onSelectTab} />
   );
+  const activeWorkspaceCustomSpecRoot = useMemo(() => {
+    if (!options.activeWorkspace?.id) {
+      return null;
+    }
+    const value = getClientStoreSync<string | null>(
+      "app",
+      `specHub.specRoot.${options.activeWorkspace.id}`,
+    );
+    return normalizeSpecRootInput(value);
+  }, [options.activeWorkspace?.id]);
 
   const sidebarSelectedDiffPath =
     options.centerMode === "diff" ? options.selectedDiffPath : null;
@@ -1052,16 +1063,6 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
           title={t("files.openRunConsole")}
         >
           <Construction aria-hidden />
-        </button>
-        <button
-          type="button"
-          className={`ghost icon-button file-tree-toggle file-tree-toggle-spec-hub${options.activeTab === "spec" ? " is-active" : ""}`}
-          onClick={options.onOpenSpecHub}
-          data-tauri-drag-region="false"
-          aria-label={t("sidebar.specHub")}
-          title={t("sidebar.specHub")}
-        >
-          <LayoutDashboard aria-hidden />
         </button>
       </div>
     </div>
@@ -1257,6 +1258,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       <FileViewPanel
         workspaceId={options.activeWorkspace.id}
         workspacePath={options.activeWorkspace.path}
+        customSpecRoot={activeWorkspaceCustomSpecRoot}
         filePath={options.editorFilePath}
         navigationTarget={options.editorNavigationTarget}
         highlightMarkers={

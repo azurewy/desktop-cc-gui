@@ -10,6 +10,7 @@ use tokio::sync::broadcast;
 
 use crate::codex::WorkspaceSession as CodexWorkspaceSession;
 
+use super::error_mapper::extract_error_message;
 use super::events::EngineEvent;
 use super::{EngineType, SendMessageParams};
 
@@ -278,20 +279,14 @@ impl CodexSessionAdapter {
                 })
             }
 
-            "turn/error" => {
-                let error = params
-                    .get("error")
-                    .and_then(|e| e.as_str())
-                    .unwrap_or("Unknown error");
-                Some(EngineEvent::TurnError {
-                    workspace_id: self.workspace_id.clone(),
-                    error: error.to_string(),
-                    code: params
-                        .get("code")
-                        .and_then(|c| c.as_str())
-                        .map(|s| s.to_string()),
-                })
-            }
+            "turn/error" => Some(EngineEvent::TurnError {
+                workspace_id: self.workspace_id.clone(),
+                error: extract_error_message(params.get("error"), "Unknown error"),
+                code: params
+                    .get("code")
+                    .and_then(|c| c.as_str())
+                    .map(|s| s.to_string()),
+            }),
 
             "thread/archived" => {
                 let thread_id = params.get("threadId")?.as_str()?;

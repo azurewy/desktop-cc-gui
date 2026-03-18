@@ -16,6 +16,7 @@ import type {
   FileItem,
   ManualMemoryItem,
   PermissionMode,
+  SkillItem,
 } from './types.js';
 import { ChatInputBoxHeader } from './ChatInputBoxHeader.js';
 import { ChatInputBoxFooter } from './ChatInputBoxFooter.js';
@@ -81,6 +82,23 @@ function manualMemoryToDropdownItem(memory: ManualMemoryItem) {
       importance: memory.importance,
       updatedAt: memory.updatedAt,
       tags: memory.tags,
+    },
+  };
+}
+
+function skillToDropdownItem(skill: SkillItem) {
+  const label = (skill.name || '').trim();
+  const source = (skill.source || '').trim();
+  return {
+    id: `skill:${source || 'project'}:${label}`,
+    label,
+    description: undefined,
+    icon: 'codicon-tools',
+    type: 'command' as const,
+    data: {
+      source: skill.source,
+      path: skill.path,
+      scopeLabel: skill.scopeLabel,
     },
   };
 }
@@ -163,8 +181,10 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
       onRemoveFromQueue,
       fileCompletionProvider,
       commandCompletionProvider,
+      skillCompletionProvider,
       manualMemoryCompletionProvider,
       onSelectManualMemory,
+      onSelectSkill,
     }: ChatInputBoxProps,
     ref: React.ForwardedRef<ChatInputBoxHandle>
   ) => {
@@ -299,6 +319,30 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
       },
     });
 
+    // Skill completion hook ($ trigger)
+    const skillCompletion = useCompletionDropdown<SkillItem>({
+      trigger: '$',
+      provider: skillCompletionProvider ?? (async () => []),
+      toDropdownItem: skillToDropdownItem,
+      onSelect: (skill, query) => {
+        if (!editableRef.current || !query) return;
+
+        const text = getTextContent();
+        const skillName = (skill.name || '').trim();
+        if (!skillName) return;
+        const replacement = '';
+        const newText = skillCompletion.replaceText(text, replacement, query);
+
+        editableRef.current.innerText = newText;
+
+        const cursorPos = query.start + replacement.length;
+        setCursorOffset(editableRef.current, cursorPos);
+
+        handleInput();
+        onSelectSkill?.(skillName);
+      },
+    });
+
     // Agent selection completion hook (# trigger at line start)
     const agentCompletion = useCompletionDropdown<AgentItem>({
       trigger: '#',
@@ -399,6 +443,7 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
       fileCompletion.close();
       memoryCompletion.close();
       commandCompletion.close();
+      skillCompletion.close();
       agentCompletion.close();
       promptCompletion.close();
     };
@@ -456,6 +501,7 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
       fileCompletion,
       memoryCompletion,
       commandCompletion,
+      skillCompletion,
       agentCompletion,
       promptCompletion,
     });
@@ -537,6 +583,7 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
           fileCompletion.isOpen ||
           memoryCompletion.isOpen ||
           commandCompletion.isOpen ||
+          skillCompletion.isOpen ||
           agentCompletion.isOpen ||
           promptCompletion.isOpen;
         if (!isOtherCompletionOpen) {
@@ -562,6 +609,7 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
         fileCompletion,
         memoryCompletion,
         commandCompletion,
+        skillCompletion,
         agentCompletion,
         promptCompletion,
         inlineCompletion,
@@ -668,6 +716,7 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
       fileCompletion,
       memoryCompletion,
       commandCompletion,
+      skillCompletion,
       agentCompletion,
       promptCompletion,
       recordInputHistory,
@@ -704,6 +753,7 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
       fileCompletion,
       memoryCompletion,
       commandCompletion,
+      skillCompletion,
       agentCompletion,
       promptCompletion,
       handleMacCursorMovement,
@@ -736,6 +786,7 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
       fileCompletion,
       memoryCompletion,
       commandCompletion,
+      skillCompletion,
       agentCompletion,
       promptCompletion,
       completionSelectedRef,
@@ -745,8 +796,18 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
     });
 
     // Paste and drop hook
-    const { handlePaste, handleDragOver, handleDrop } = usePasteAndDrop({
+    const {
+      handlePaste,
+      handleDragOver,
+      handleDragEnter,
+      handleDragLeave,
+      handleDrop,
+      isDragOver,
+      dragPreviewNames,
+    } = usePasteAndDrop({
+      disabled,
       editableRef,
+      dropZoneRef: containerRef,
       pathMappingRef,
       getTextContent,
       adjustHeight,
@@ -761,6 +822,16 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
         debouncedOnInput.flush();
       },
     });
+    const dragPreviewText = useMemo(() => {
+      if (dragPreviewNames.length === 0) {
+        return "";
+      }
+      const first = dragPreviewNames[0];
+      if (dragPreviewNames.length === 1) {
+        return first;
+      }
+      return `${first} ${t("chat.dragDropMore", { count: dragPreviewNames.length - 1 })}`;
+    }, [dragPreviewNames, t]);
 
     const { handleAddAttachment, handleRemoveAttachment } = useAttachmentHandlers({
       externalAttachments,
@@ -856,11 +927,15 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
     return (
       <div className="chat-input-box-wrapper">
         <div
-          className={`chat-input-box ${isResizingInputBox ? 'is-resizing' : ''}${isInputBoxCollapsed ? ' is-collapsed' : ''}`}
+          className={`chat-input-box ${isResizingInputBox ? 'is-resizing' : ''}${isInputBoxCollapsed ? ' is-collapsed' : ''}${isDragOver ? " is-drag-over" : ""}`}
           onClick={() => {
             if (isInputBoxCollapsed) return;
             focusInput();
           }}
+          onDragOver={handleDragOver}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
           ref={containerRef}
           style={containerStyle}
         >
@@ -893,11 +968,23 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
           {!isInputBoxCollapsed && (
             <div
               ref={editableWrapperRef}
-              className="input-editable-wrapper"
+              className={`input-editable-wrapper${isDragOver ? " is-drag-over" : ""}`}
               onMouseOver={handleMouseOver}
               onMouseLeave={handleMouseLeave}
+              onDragOver={handleDragOver}
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
               style={editableWrapperStyle}
             >
+              {isDragOver ? (
+                <div className="input-drag-overlay" aria-hidden>
+                  <span className="input-drag-overlay-label">{t("chat.dragDropHint")}</span>
+                  {dragPreviewText ? (
+                    <span className="input-drag-overlay-chip">{dragPreviewText}</span>
+                  ) : null}
+                </div>
+              ) : null}
               <div
                 ref={editableRef}
                 className="input-editable"
@@ -955,6 +1042,7 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
                       fileCompletion.isOpen ||
                       memoryCompletion.isOpen ||
                       commandCompletion.isOpen ||
+                      skillCompletion.isOpen ||
                       agentCompletion.isOpen ||
                       promptCompletion.isOpen
                     ) {
@@ -972,6 +1060,8 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
                 onCompositionEnd={handleCompositionEnd}
                 onPaste={handlePaste}
                 onDragOver={handleDragOver}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
                 suppressContentEditableWarning
               />
@@ -1018,6 +1108,7 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
               fileCompletion={fileCompletion}
               memoryCompletion={memoryCompletion}
               commandCompletion={commandCompletion}
+              skillCompletion={skillCompletion}
               agentCompletion={agentCompletion}
               promptCompletion={promptCompletion}
               selectedManualMemoryIds={selectedManualMemoryIds}
