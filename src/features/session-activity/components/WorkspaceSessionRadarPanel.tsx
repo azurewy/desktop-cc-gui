@@ -57,6 +57,29 @@ function formatDuration(durationMs: number | null, t: ReturnType<typeof useTrans
   return `${restSeconds}s`;
 }
 
+function resolveDurationToneClass(durationMs: number | null) {
+  if (durationMs == null) {
+    return "is-unknown";
+  }
+  const totalMinutes = durationMs / (60 * 1000);
+  if (totalMinutes < 1) {
+    return "is-seconds";
+  }
+  if (totalMinutes <= 5) {
+    return "is-lt-5m";
+  }
+  if (totalMinutes <= 10) {
+    return "is-lt-10m";
+  }
+  if (totalMinutes <= 20) {
+    return "is-lt-20m";
+  }
+  if (totalMinutes <= 30) {
+    return "is-lt-30m";
+  }
+  return "is-gt-30m";
+}
+
 function formatDateKey(timestamp: number) {
   const date = new Date(timestamp);
   const year = date.getFullYear();
@@ -83,6 +106,7 @@ export function WorkspaceSessionRadarPanel({
   onSelectThread,
 }: WorkspaceSessionRadarPanelProps) {
   const { t } = useTranslation();
+  const [previewExpandedById, setPreviewExpandedById] = useState<Record<string, boolean>>({});
   const [readStateById, setReadStateById] = useState<Record<string, number>>(
     () => getClientStoreSync<Record<string, number>>(RADAR_STORE_NAME, RADAR_READ_STATE_KEY) ?? {},
   );
@@ -125,6 +149,15 @@ export function WorkspaceSessionRadarPanel({
   const renderReadMarkerIcon = (isUnreadRecent: boolean) =>
     isUnreadRecent ? <BellDot size={11} aria-hidden /> : <CheckCheck size={11} aria-hidden />;
 
+  const expandPreview = (entryId: string) => {
+    setPreviewExpandedById((current) => {
+      if (current[entryId]) {
+        return current;
+      }
+      return { ...current, [entryId]: true };
+    });
+  };
+
   const renderSection = (
     sectionTitle: string,
     emptyCopyKey: "activityPanel.radar.emptyRunning" | "activityPanel.radar.emptyRecent",
@@ -148,13 +181,13 @@ export function WorkspaceSessionRadarPanel({
                 type="button"
                 className={`session-activity-radar-row${entry.isProcessing ? " is-running" : ""}${
                   isUnreadRecent ? " is-unread" : ""
-                }`}
+                }${previewExpandedById[entry.id] ? " is-preview-expanded" : ""}`}
+                onMouseEnter={() => expandPreview(entry.id)}
                 onClick={() => {
                   markEntryAsRead(entry);
                   onSelectThread(entry.workspaceId, entry.threadId);
                 }}
                 aria-label={entry.threadName}
-                title={entry.threadName}
               >
                 {!entry.isProcessing ? (
                   <span
@@ -196,13 +229,22 @@ export function WorkspaceSessionRadarPanel({
                       {t("activityPanel.radar.startedAt")}{" "}
                       {entry.startedAt ? formatActivityTime(entry.startedAt) : t("activityPanel.radar.timeUnknown")}
                     </span>
-                    <span>
-                      {t("activityPanel.radar.endedAt")}{" "}
-                      {entry.completedAt ? formatActivityTime(entry.completedAt) : t("activityPanel.status.running")}
-                    </span>
-                    <span>
-                      {t("activityPanel.radar.totalDuration")} {formatDuration(entry.durationMs, t)}
-                    </span>
+                    {!entry.isProcessing ? (
+                      <>
+                        <span>
+                          {t("activityPanel.radar.endedAt")}{" "}
+                          {entry.completedAt ? formatActivityTime(entry.completedAt) : t("activityPanel.status.running")}
+                        </span>
+                        <span>
+                          {t("activityPanel.radar.totalDuration")}{" "}
+                          <span
+                            className={`session-activity-radar-duration ${resolveDurationToneClass(entry.durationMs)}`}
+                          >
+                            {formatDuration(entry.durationMs, t)}
+                          </span>
+                        </span>
+                      </>
+                    ) : null}
                   </span>
                   <span className="session-activity-radar-row-preview">
                     {entry.preview || t("activityPanel.commandPendingSummary")}
@@ -259,6 +301,15 @@ export function WorkspaceSessionRadarPanel({
                           next,
                           { immediate: true },
                         );
+                        if (!isCollapsed) {
+                          setPreviewExpandedById((expandedCurrent) => {
+                            const expandedNext = { ...expandedCurrent };
+                            for (const entry of group) {
+                              delete expandedNext[entry.id];
+                            }
+                            return expandedNext;
+                          });
+                        }
                         return next;
                       })
                     }}
@@ -280,13 +331,15 @@ export function WorkspaceSessionRadarPanel({
                           <button
                             key={entry.id}
                             type="button"
-                            className={`session-activity-radar-row${isUnreadRecent ? " is-unread" : ""}`}
+                            className={`session-activity-radar-row${isUnreadRecent ? " is-unread" : ""}${
+                              previewExpandedById[entry.id] ? " is-preview-expanded" : ""
+                            }`}
+                            onMouseEnter={() => expandPreview(entry.id)}
                             onClick={() => {
                               markEntryAsRead(entry);
                               onSelectThread(entry.workspaceId, entry.threadId);
                             }}
                             aria-label={entry.threadName}
-                            title={entry.threadName}
                           >
                             <span
                               className={`session-activity-radar-corner-badge${
@@ -333,7 +386,12 @@ export function WorkspaceSessionRadarPanel({
                                     : t("activityPanel.status.running")}
                                 </span>
                                 <span>
-                                  {t("activityPanel.radar.totalDuration")} {formatDuration(entry.durationMs, t)}
+                                  {t("activityPanel.radar.totalDuration")}{" "}
+                                  <span
+                                    className={`session-activity-radar-duration ${resolveDurationToneClass(entry.durationMs)}`}
+                                  >
+                                    {formatDuration(entry.durationMs, t)}
+                                  </span>
                                 </span>
                               </span>
                               <span className="session-activity-radar-row-preview">

@@ -70,7 +70,7 @@ describe("WorkspaceSessionRadarPanel", () => {
     expect(screen.getAllByLabelText("activityPanel.radar.unreadMark")).toHaveLength(2);
     expect(screen.queryByText("activityPanel.radar.openSession")).toBeNull();
 
-    fireEvent.click(screen.getByTitle("Recent Thread"));
+    fireEvent.click(screen.getByRole("button", { name: /^Recent Thread$/i }));
     expect(onSelectThread).toHaveBeenCalledWith("w2", "t2");
     expect(screen.getAllByLabelText("activityPanel.radar.unreadMark")).toHaveLength(1);
     expect(screen.getByLabelText("activityPanel.radar.readMark")).toBeTruthy();
