@@ -1341,6 +1341,36 @@ function findAssistantMessageIndexByPrefix(
   return -1;
 }
 
+function buildLegacyTextDeltaItemId(threadId: string) {
+  return `${threadId}:text-delta`;
+}
+
+function isLegacyTextDeltaItemId(threadId: string, itemId: string) {
+  if (!threadId || !itemId) {
+    return false;
+  }
+  const legacyId = buildLegacyTextDeltaItemId(threadId);
+  return itemId === legacyId || itemId.startsWith(`${legacyId}-seg-`);
+}
+
+function findAssistantMessageIndexByLegacyTextDelta(
+  list: ConversationItem[],
+  threadId: string,
+) {
+  const legacyId = buildLegacyTextDeltaItemId(threadId);
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const item = list[index];
+    if (
+      item.kind === "message" &&
+      item.role === "assistant" &&
+      (item.id === legacyId || item.id.startsWith(`${legacyId}-seg-`))
+    ) {
+      return index;
+    }
+  }
+  return -1;
+}
+
 function resolveLiveAssistantMessageId(
   state: ThreadState,
   threadId: string,
@@ -2025,14 +2055,29 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
       );
 
       const list = [...(state.itemsByThread[action.threadId] ?? [])];
-      const index = findAssistantMessageIndexById(list, segmentedItemId);
+      let index = findAssistantMessageIndexById(list, segmentedItemId);
+      let shouldCanonicalizeLegacyId = false;
+      if (index < 0 && !isLegacyTextDeltaItemId(action.threadId, segmentedItemId)) {
+        const legacySegmentedItemId = resolveLiveAssistantMessageId(
+          state,
+          action.threadId,
+          buildLegacyTextDeltaItemId(action.threadId),
+        );
+        index = findAssistantMessageIndexById(list, legacySegmentedItemId);
+        if (index < 0) {
+          index = findAssistantMessageIndexByLegacyTextDelta(list, action.threadId);
+        }
+        shouldCanonicalizeLegacyId = index >= 0;
+      }
       if (index >= 0) {
         const existing = list[index];
         if (existing.kind !== "message" || existing.role !== "assistant") {
           return state;
         }
+        const nextId = shouldCanonicalizeLegacyId ? segmentedItemId : existing.id;
         list[index] = {
           ...existing,
+          id: nextId,
           text: mergeAgentMessageText(existing.text, action.delta),
         };
       } else {
@@ -2075,7 +2120,25 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
       if (index < 0) {
         index = findAssistantMessageIndexByPrefix(list, action.itemId);
       }
-      const targetItemId = index >= 0 ? list[index].id : segmentedItemId;
+      let shouldCanonicalizeLegacyId = false;
+      if (index < 0 && !isLegacyTextDeltaItemId(action.threadId, segmentedItemId)) {
+        const legacySegmentedItemId = resolveLiveAssistantMessageId(
+          state,
+          action.threadId,
+          buildLegacyTextDeltaItemId(action.threadId),
+        );
+        index = findAssistantMessageIndexById(list, legacySegmentedItemId);
+        if (index < 0) {
+          index = findAssistantMessageIndexByLegacyTextDelta(list, action.threadId);
+        }
+        shouldCanonicalizeLegacyId = index >= 0;
+      }
+      const targetItemId =
+        index >= 0
+          ? shouldCanonicalizeLegacyId
+            ? segmentedItemId
+            : list[index].id
+          : segmentedItemId;
       const existingItem = index >= 0 ? list[index] : null;
       if (
         existingItem &&
@@ -2084,6 +2147,7 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
       ) {
         list[index] = {
           ...existingItem,
+          id: targetItemId,
           text: mergeCompletedAgentText(existingItem.text, action.text),
         };
       } else {

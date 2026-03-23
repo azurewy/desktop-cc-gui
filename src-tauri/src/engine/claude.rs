@@ -77,19 +77,30 @@ pub struct ClaudeSession {
     tool_id_by_block_index: StdMutex<HashMap<(String, i64), String>>,
     /// Track unresolved tools so transcript-style tool_result payloads can be paired back
     pending_tools: StdMutex<Vec<PendingClaudeTool>>,
-    /// Last emitted text for assistant partial messages (used to compute true delta)
-    last_emitted_text: StdMutex<String>,
+    /// Last emitted text for assistant partial messages, isolated per turn
+    last_emitted_text_by_turn: StdMutex<HashMap<String, String>>,
     /// Stdin handles per turn for AskUserQuestion responses
     stdin_by_turn: Mutex<HashMap<String, ChildStdin>>,
     /// Pending AskUserQuestion requests: request_id -> turn_id
     pending_user_inputs: StdMutex<HashMap<String, String>>,
-    /// Signal to resume stdout processing after user responds to AskUserQuestion
-    user_input_notify: Arc<Notify>,
-    /// Stores user's formatted AskUserQuestion answer for the kill+resume mechanism
-    user_input_answer: StdMutex<Option<String>>,
+    /// Per-turn signal to resume stdout processing after AskUserQuestion response
+    user_input_notify_by_turn: StdMutex<HashMap<String, Arc<Notify>>>,
+    /// Per-turn formatted AskUserQuestion answer for kill+resume mechanism
+    user_input_answer_by_turn: StdMutex<HashMap<String, String>>,
 }
 
 impl ClaudeSession {
+    fn should_use_stream_json_input(params: &SendMessageParams) -> bool {
+        let has_images = params
+            .images
+            .as_ref()
+            .map_or(false, |imgs| imgs.iter().any(|s| !s.trim().is_empty()));
+        if has_images {
+            return true;
+        }
+        params.text.contains('\n') || params.text.contains('\r')
+    }
+
     /// Create a new Claude session for a workspace
     pub fn new(
         workspace_id: String,
@@ -114,11 +125,11 @@ impl ClaudeSession {
             tool_input_value_by_id: StdMutex::new(HashMap::new()),
             tool_id_by_block_index: StdMutex::new(HashMap::new()),
             pending_tools: StdMutex::new(Vec::new()),
-            last_emitted_text: StdMutex::new(String::new()),
+            last_emitted_text_by_turn: StdMutex::new(HashMap::new()),
             stdin_by_turn: Mutex::new(HashMap::new()),
             pending_user_inputs: StdMutex::new(HashMap::new()),
-            user_input_notify: Arc::new(Notify::new()),
-            user_input_answer: StdMutex::new(None),
+            user_input_notify_by_turn: StdMutex::new(HashMap::new()),
+            user_input_answer_by_turn: StdMutex::new(HashMap::new()),
         }
     }
 
@@ -158,7 +169,7 @@ impl ClaudeSession {
     }
 
     /// Build the Claude CLI command
-    fn build_command(&self, params: &SendMessageParams, has_images: bool) -> Command {
+    fn build_command(&self, params: &SendMessageParams, use_stream_json_input: bool) -> Command {
         // Resolve the Claude CLI binary path:
         // 1. Use custom bin_path if configured
         // 2. Otherwise use find_cli_binary() to search npm global, cargo, etc.
@@ -180,9 +191,9 @@ impl ClaudeSession {
         // Print mode (non-interactive)
         cmd.arg("-p");
 
-        if has_images {
-            // When images are present, use stream-json input format
-            // The actual content will be sent via stdin
+        if use_stream_json_input {
+            // Use stream-json input format for image payloads and multiline text.
+            // The actual content will be sent via stdin.
             cmd.arg(""); // Empty string as placeholder, real content via stdin
             cmd.arg("--input-format");
             cmd.arg("stream-json");
@@ -287,18 +298,14 @@ impl ClaudeSession {
         params: SendMessageParams,
         turn_id: &str,
     ) -> Result<String, String> {
-        // Reset cumulative text tracker for the new turn
-        if let Ok(mut last) = self.last_emitted_text.lock() {
-            last.clear();
+        // Reset cumulative text tracker for the new turn only.
+        if let Ok(mut map) = self.last_emitted_text_by_turn.lock() {
+            map.remove(turn_id);
         }
 
-        // Detect if there are images
-        let has_images = params
-            .images
-            .as_ref()
-            .map_or(false, |imgs| imgs.iter().any(|s| !s.trim().is_empty()));
+        let use_stream_json_input = Self::should_use_stream_json_input(&params);
 
-        let mut cmd = self.build_command(&params, has_images);
+        let mut cmd = self.build_command(&params, use_stream_json_input);
 
         // Spawn the process
         let mut child = match cmd.spawn() {
@@ -313,12 +320,14 @@ impl ClaudeSession {
                         code: None,
                     },
                 );
+                self.clear_turn_ephemeral_state(turn_id);
                 return Err(error_msg);
             }
         };
 
-        // If there are images, write the message content to stdin
-        if has_images {
+        // If stream-json input is enabled, write the message content to stdin.
+        // This path is required for image payloads and multiline text prompts.
+        if use_stream_json_input {
             if let Some(mut stdin) = child.stdin.take() {
                 let message = build_message_content(&params)?;
                 let message_str = serde_json::to_string(&message)
@@ -543,6 +552,7 @@ impl ClaudeSession {
                 log::error!("Claude process failed: {}", error_msg);
 
                 if Self::is_prompt_too_long_error(&error_msg) {
+                    self.clear_turn_ephemeral_state(turn_id);
                     return Err(Self::mark_retryable_prompt_too_long_error(&error_msg));
                 }
 
@@ -555,6 +565,7 @@ impl ClaudeSession {
                     },
                 );
 
+                self.clear_turn_ephemeral_state(turn_id);
                 return Err(error_msg);
             }
         } else {
@@ -572,6 +583,7 @@ impl ClaudeSession {
                         code: None,
                     },
                 );
+                self.clear_turn_ephemeral_state(turn_id);
                 return Err("Session stopped.".to_string());
             }
             // Not a user interrupt — treat as unexpected termination
@@ -586,6 +598,7 @@ impl ClaudeSession {
                         code: None,
                     },
                 );
+                self.clear_turn_ephemeral_state(turn_id);
                 return Err(error_msg);
             }
         }
@@ -601,6 +614,7 @@ impl ClaudeSession {
             };
             log::error!("Claude stream reported runtime error: {}", error_msg);
             if Self::is_prompt_too_long_error(&error_msg) {
+                self.clear_turn_ephemeral_state(turn_id);
                 return Err(Self::mark_retryable_prompt_too_long_error(&error_msg));
             }
             if !stream_error_event_emitted {
@@ -613,6 +627,7 @@ impl ClaudeSession {
                     },
                 );
             }
+            self.clear_turn_ephemeral_state(turn_id);
             return Err(error_msg);
         }
 
@@ -627,6 +642,7 @@ impl ClaudeSession {
             },
         );
 
+        self.clear_turn_ephemeral_state(turn_id);
         Ok(response_text)
     }
 
@@ -660,7 +676,19 @@ impl ClaudeSession {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clear();
-        self.last_emitted_text
+        self.last_emitted_text_by_turn
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.user_input_notify_by_turn
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.user_input_answer_by_turn
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.pending_user_inputs
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clear();
@@ -725,7 +753,7 @@ impl ClaudeSession {
                             // assistant partial messages contain cumulative text.
                             // Compute the true delta to avoid sending the full text
                             // on every update, which causes excessive re-renders.
-                            let delta = self.compute_text_delta(&cumulative_text);
+                            let delta = self.compute_text_delta(turn_id, &cumulative_text);
                             if !delta.is_empty() {
                                 if let Some(reasoning) = reasoning_text.as_deref() {
                                     self.emit_turn_event(
@@ -851,7 +879,7 @@ impl ClaudeSession {
                     return None;
                 }
                 if let Some(cumulative_text) = extract_result_text(event) {
-                    let delta = self.compute_text_delta(&cumulative_text);
+                    let delta = self.compute_text_delta(turn_id, &cumulative_text);
                     if !delta.is_empty() {
                         return Some(EngineEvent::TextDelta {
                             workspace_id: self.workspace_id.clone(),
@@ -1336,8 +1364,9 @@ impl ClaudeSession {
     /// If the cumulative text starts with the previously emitted text,
     /// return only the new portion. Otherwise return the full text
     /// (this handles edge cases like context compaction).
-    fn compute_text_delta(&self, cumulative: &str) -> String {
-        if let Ok(mut last) = self.last_emitted_text.lock() {
+    fn compute_text_delta(&self, turn_id: &str, cumulative: &str) -> String {
+        if let Ok(mut map) = self.last_emitted_text_by_turn.lock() {
+            let last = map.entry(turn_id.to_string()).or_default();
             if cumulative.starts_with(last.as_str()) {
                 let delta = cumulative[last.len()..].to_string();
                 *last = cumulative.to_string();
@@ -1347,6 +1376,37 @@ impl ClaudeSession {
             *last = cumulative.to_string();
         }
         cumulative.to_string()
+    }
+
+    fn get_or_create_user_input_notify(&self, turn_id: &str) -> Arc<Notify> {
+        if let Ok(mut map) = self.user_input_notify_by_turn.lock() {
+            if let Some(existing) = map.get(turn_id) {
+                return existing.clone();
+            }
+            let notify = Arc::new(Notify::new());
+            map.insert(turn_id.to_string(), notify.clone());
+            return notify;
+        }
+        Arc::new(Notify::new())
+    }
+
+    fn clear_pending_user_inputs_for_turn(&self, turn_id: &str) {
+        if let Ok(mut pending) = self.pending_user_inputs.lock() {
+            pending.retain(|_, value| value != turn_id);
+        }
+        if let Ok(mut notifies) = self.user_input_notify_by_turn.lock() {
+            notifies.remove(turn_id);
+        }
+        if let Ok(mut answers) = self.user_input_answer_by_turn.lock() {
+            answers.remove(turn_id);
+        }
+    }
+
+    fn clear_turn_ephemeral_state(&self, turn_id: &str) {
+        if let Ok(mut map) = self.last_emitted_text_by_turn.lock() {
+            map.remove(turn_id);
+        }
+        self.clear_pending_user_inputs_for_turn(turn_id);
     }
 
     fn append_tool_input(&self, tool_id: &str, partial: &str) -> Option<Value> {
@@ -1519,25 +1579,27 @@ impl ClaudeSession {
         params: &SendMessageParams,
         new_session_id: &Option<String>,
     ) -> Option<tokio::io::Lines<BufReader<tokio::process::ChildStdout>>> {
+        let notify = self.get_or_create_user_input_notify(turn_id);
         log::info!("AskUserQuestion detected, waiting for user (up to 5 min)…");
         let user_answered = tokio::select! {
-            _ = self.user_input_notify.notified() => true,
+            _ = notify.notified() => true,
             _ = tokio::time::sleep(
                 std::time::Duration::from_secs(300)
             ) => false,
         };
 
-        // Grab the formatted answer (if any)
-        let answer_text = self
-            .user_input_answer
-            .lock()
-            .ok()
-            .and_then(|mut slot| slot.take());
-
         if !user_answered {
             log::info!("AskUserQuestion timed out (5 min), resuming original");
+            self.clear_pending_user_inputs_for_turn(turn_id);
             return None;
         }
+
+        // Grab the formatted answer for this turn only.
+        let answer_text = self
+            .user_input_answer_by_turn
+            .lock()
+            .ok()
+            .and_then(|mut map| map.remove(turn_id));
 
         let answer = match answer_text {
             Some(a) => a,
@@ -1627,53 +1689,37 @@ impl ClaudeSession {
         result: Value,
     ) -> Result<(), String> {
         let normalized_request_id = Self::normalize_request_id_key(&request_id);
-        if normalized_request_id.is_none() && !self.has_any_pending_user_input() {
+        if normalized_request_id.is_none() {
             return Err("invalid request_id for AskUserQuestion".to_string());
         }
 
-        // Remove from pending tracking. If the provided request_id does not match but
-        // exactly one AskUserQuestion is pending, fall back to that request key.
-        let mut resolved_request_id = normalized_request_id.clone();
-        if let Ok(mut pending) = self.pending_user_inputs.lock() {
-            if let Some(request_id_key) = normalized_request_id.as_ref() {
-                if pending.remove(request_id_key).is_some() {
-                    resolved_request_id = Some(request_id_key.clone());
-                } else {
-                    resolved_request_id = None;
-                }
-            } else {
-                resolved_request_id = None;
-            }
+        // Strict request_id matching prevents cross-turn answer routing
+        // when multiple AskUserQuestion prompts are pending.
+        let request_id_key = normalized_request_id.unwrap_or_default();
+        let turn_id = {
+            let mut pending = self
+                .pending_user_inputs
+                .lock()
+                .map_err(|_| "pending_user_inputs lock poisoned".to_string())?;
+            pending.remove(&request_id_key).ok_or_else(|| {
+                format!("unknown request_id for AskUserQuestion: {}", request_id_key)
+            })?
+        };
 
-            if resolved_request_id.is_none() && pending.len() == 1 {
-                if let Some(fallback_request_id) = pending.keys().next().cloned() {
-                    log::warn!(
-                        "Claude engine: request_id mismatch for AskUserQuestion response; using fallback pending request_id={}",
-                        fallback_request_id
-                    );
-                    pending.remove(&fallback_request_id);
-                    resolved_request_id = Some(fallback_request_id);
-                }
-            }
-        }
-        let request_id_key = resolved_request_id
-            .or(normalized_request_id)
-            .unwrap_or_else(|| "<unknown>".to_string());
-
-        // Format the answer and store it for the stdout loop to pick up
+        // Format the answer and store it for the target turn only.
         let answer_text = format_ask_user_answer(&result);
         log::info!(
-            "Claude engine: AskUserQuestion response (request_id={}): {}",
+            "Claude engine: AskUserQuestion response (request_id={}, turn_id={}): {}",
             request_id_key,
+            turn_id,
             answer_text
         );
-        if let Ok(mut slot) = self.user_input_answer.lock() {
-            *slot = Some(answer_text);
+        if let Ok(mut map) = self.user_input_answer_by_turn.lock() {
+            map.insert(turn_id.clone(), answer_text);
         }
 
-        // Signal the stdout reading loop to resume — it will kill the
-        // current process and restart with --resume + the answer.
-        self.user_input_notify.notify_one();
+        // Signal only the matching turn's stdout loop to resume.
+        self.get_or_create_user_input_notify(&turn_id).notify_one();
 
         Ok(())
     }
@@ -1924,7 +1970,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn respond_to_user_input_falls_back_to_single_pending_request() {
+    async fn respond_to_user_input_rejects_mismatched_request_id() {
         let session = ClaudeSession::new(
             "test-workspace".to_string(),
             PathBuf::from("/tmp/test"),
@@ -1941,12 +1987,13 @@ mod tests {
                 }
             }
         });
-        session
+        let err = session
             .respond_to_user_input(json!(999), result)
             .await
-            .expect("fallback respond success");
+            .expect_err("mismatched request_id should fail");
 
-        assert!(!session.has_any_pending_user_input());
+        assert!(err.contains("unknown request_id"));
+        assert!(session.has_any_pending_user_input());
     }
 
     #[test]
@@ -1974,6 +2021,44 @@ mod tests {
         assert!(args.windows(2).any(|window| {
             window[0] == "--add-dir" && window[1] == params.custom_spec_root.clone().unwrap()
         }));
+    }
+
+    #[test]
+    fn should_use_stream_json_input_for_multiline_text_without_images() {
+        let mut params = SendMessageParams::default();
+        params.text = "line1\nline2".to_string();
+        assert!(ClaudeSession::should_use_stream_json_input(&params));
+    }
+
+    #[test]
+    fn should_not_use_stream_json_input_for_single_line_text_without_images() {
+        let mut params = SendMessageParams::default();
+        params.text = "single line".to_string();
+        assert!(!ClaudeSession::should_use_stream_json_input(&params));
+    }
+
+    #[test]
+    fn build_command_uses_stream_json_for_multiline_text() {
+        let session = ClaudeSession::new(
+            "test-workspace".to_string(),
+            PathBuf::from("/tmp/test"),
+            None,
+        );
+        let mut params = SendMessageParams::default();
+        params.text = "line1\nline2".to_string();
+
+        let use_stream_json_input = ClaudeSession::should_use_stream_json_input(&params);
+        let command = session.build_command(&params, use_stream_json_input);
+        let args: Vec<String> = command
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+
+        assert!(args
+            .windows(2)
+            .any(|window| { window[0] == "--input-format" && window[1] == "stream-json" }));
+        assert!(args.iter().all(|arg| arg != "line1\nline2"));
     }
 
     #[test]

@@ -1888,8 +1888,16 @@ pub async fn engine_send_message(
                     let recv_result = tokio::time::timeout_at(deadline, receiver.recv()).await;
                     let turn_event = match recv_result {
                         Ok(Ok(event)) => event,
-                        Ok(Err(_)) => break, // channel closed
-                        Err(_) => break,     // timeout reached
+                        Ok(Err(tokio::sync::broadcast::error::RecvError::Closed)) => break,
+                        Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped))) => {
+                            log::warn!(
+                                "Claude event forwarder lagged; skipped {} events for turn {}",
+                                skipped,
+                                turn_id_for_forwarder
+                            );
+                            continue;
+                        }
+                        Err(_) => break, // timeout reached
                     };
                     if turn_event.turn_id != turn_id_for_forwarder {
                         continue;
@@ -2079,7 +2087,15 @@ pub async fn engine_send_message(
                     let recv_result = tokio::time::timeout_at(deadline, receiver.recv()).await;
                     let turn_event = match recv_result {
                         Ok(Ok(event)) => event,
-                        Ok(Err(_)) => break,
+                        Ok(Err(tokio::sync::broadcast::error::RecvError::Closed)) => break,
+                        Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped))) => {
+                            log::warn!(
+                                "OpenCode event forwarder lagged; skipped {} events for turn {}",
+                                skipped,
+                                turn_id_for_forwarder
+                            );
+                            continue;
+                        }
                         Err(_) => break,
                     };
                     if turn_event.turn_id != turn_id_for_forwarder {
