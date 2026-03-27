@@ -174,6 +174,7 @@ export function FileExplorerWorkspace({
           isSpecHubActive={viewerMode === "spec"}
           showSpecHubAction
           showDetachedExplorerAction={false}
+          crossWindowDragTargetLabel="main"
         />
       </div>
       <div

@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  DETACHED_FILE_TREE_DRAG_BRIDGE_EVENT,
+  DETACHED_FILE_TREE_DRAG_SNAPSHOT_STORAGE_KEY,
+} from "../detachedFileTreeDragBridge";
 
 const invokeMock = vi.fn(async () => null);
+const emitToMock = vi.fn(async () => undefined);
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -13,6 +18,10 @@ vi.mock("react-i18next", () => ({
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (value: string) => value,
   invoke: (...args: any[]) => (invokeMock as any)(...args),
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  emitTo: (...args: any[]) => (emitToMock as any)(...args),
 }));
 
 vi.mock("@tauri-apps/api/menu", () => ({
@@ -47,6 +56,8 @@ beforeAll(async () => {
 afterEach(() => {
   cleanup();
   invokeMock.mockClear();
+  emitToMock.mockClear();
+  window.localStorage.removeItem(DETACHED_FILE_TREE_DRAG_SNAPSHOT_STORAGE_KEY);
 });
 
 describe("FileTreePanel detached explorer action", () => {
@@ -79,5 +90,95 @@ describe("FileTreePanel detached explorer action", () => {
     expect(screen.getByTitle("sidebar.specHub")).not.toBeNull();
     fireEvent.click(screen.getByTitle("files.openDetachedExplorer"));
     expect(onOpenDetachedExplorer).toHaveBeenCalledWith(null);
+  });
+
+  it("broadcasts detached tree drag paths to the main window", () => {
+    render(
+      <FileTreePanel
+        workspaceId="workspace-1"
+        workspaceName="workspace"
+        workspacePath="/tmp/workspace"
+        files={["README.md"]}
+        isLoading={false}
+        filePanelMode="files"
+        onFilePanelModeChange={() => undefined}
+        onOpenFile={() => undefined}
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={() => undefined}
+        gitStatusFiles={[]}
+        gitignoredFiles={new Set<string>()}
+        gitignoredDirectories={new Set<string>()}
+        crossWindowDragTargetLabel="main"
+      />,
+    );
+
+    fireEvent.dragStart(screen.getByRole("button", { name: "README.md" }), {
+      dataTransfer: {
+        setData: vi.fn(),
+        effectAllowed: "",
+      },
+    });
+
+    expect(emitToMock).toHaveBeenCalledWith(
+      "main",
+      DETACHED_FILE_TREE_DRAG_BRIDGE_EVENT,
+      {
+        type: "start",
+        paths: ["/tmp/workspace/README.md"],
+      },
+    );
+    const snapshot = window.localStorage.getItem(DETACHED_FILE_TREE_DRAG_SNAPSHOT_STORAGE_KEY);
+    expect(snapshot).toContain("/tmp/workspace/README.md");
+  });
+
+  it("rebroadcasts detached drag payload during drag movement", async () => {
+    render(
+      <FileTreePanel
+        workspaceId="workspace-1"
+        workspaceName="workspace"
+        workspacePath="/tmp/workspace"
+        files={["README.md"]}
+        isLoading={false}
+        filePanelMode="files"
+        onFilePanelModeChange={() => undefined}
+        onOpenFile={() => undefined}
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={() => undefined}
+        gitStatusFiles={[]}
+        gitignoredFiles={new Set<string>()}
+        gitignoredDirectories={new Set<string>()}
+        crossWindowDragTargetLabel="main"
+      />,
+    );
+
+    const row = screen.getByRole("button", { name: "README.md" });
+    fireEvent.dragStart(row, {
+      dataTransfer: {
+        setData: vi.fn(),
+        effectAllowed: "",
+      },
+    });
+    emitToMock.mockClear();
+
+    await new Promise((resolve) => setTimeout(resolve, 140));
+    fireEvent.drag(row, {
+      dataTransfer: {
+        setData: vi.fn(),
+        effectAllowed: "",
+      },
+    });
+
+    expect(emitToMock).toHaveBeenCalledWith(
+      "main",
+      DETACHED_FILE_TREE_DRAG_BRIDGE_EVENT,
+      {
+        type: "start",
+        paths: ["/tmp/workspace/README.md"],
+      },
+    );
   });
 });

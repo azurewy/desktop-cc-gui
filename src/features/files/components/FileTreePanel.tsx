@@ -9,6 +9,7 @@ import type { DragEvent, MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { emitTo } from "@tauri-apps/api/event";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -28,6 +29,11 @@ import {
 } from "../../../services/tauri";
 import type { GitFileStatus, OpenAppTarget } from "../../../types";
 import { languageFromPath } from "../../../utils/syntax";
+import {
+  writeDetachedFileTreeDragSnapshot,
+  DETACHED_FILE_TREE_DRAG_BRIDGE_EVENT,
+  type DetachedFileTreeDragBridgePayload,
+} from "../detachedFileTreeDragBridge";
 import { FilePreviewPopover } from "./FilePreviewPopover";
 import { FileTreeRootActions } from "./FileTreeRootActions";
 
@@ -66,6 +72,7 @@ type FileTreePanelProps = {
   onOpenDetachedExplorer?: (initialFilePath?: string | null) => void;
   showSpecHubAction?: boolean;
   showDetachedExplorerAction?: boolean;
+  crossWindowDragTargetLabel?: string | null;
   gitStatusFiles?: GitFileStatus[];
   gitignoredFiles?: Set<string>;
   gitignoredDirectories?: Set<string>;
@@ -126,6 +133,7 @@ const SPECIAL_BUILD_ARTIFACT_DIRECTORIES = new Set([
   ".tox",
   ".dart_tool",
 ]);
+const CROSS_WINDOW_TREE_DRAG_REBROADCAST_THROTTLE_MS = 120;
 function setFileTreeDragBridge(paths: string[]) {
   if (typeof window === "undefined") {
     return;
@@ -633,6 +641,7 @@ export function FileTreePanel({
   onOpenDetachedExplorer,
   showSpecHubAction = true,
   showDetachedExplorerAction = true,
+  crossWindowDragTargetLabel = null,
   gitStatusFiles,
   gitignoredFiles,
   gitignoredDirectories,
@@ -666,6 +675,8 @@ export function FileTreePanel({
   const [selectedNodeType, setSelectedNodeType] = useState<"file" | "folder" | null>(null);
   const [selectedNodePaths, setSelectedNodePaths] = useState<Set<string>>(new Set());
   const selectionAnchorPathRef = useRef<string | null>(null);
+  const activeCrossWindowDragPathsRef = useRef<string[]>([]);
+  const lastCrossWindowDragBroadcastRef = useRef(0);
   const panelRef = useRef<HTMLElement | null>(null);
   const [newFileParent, setNewFileParent] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState("");
@@ -1459,6 +1470,43 @@ export function FileTreePanel({
       visibleTreePathOrder.filter((path) => path.length > 0 && selectedNodePaths.has(path)),
     [selectedNodePaths, visibleTreePathOrder],
   );
+  const broadcastCrossWindowTreeDrag = useCallback(
+    (payload: DetachedFileTreeDragBridgePayload) => {
+      if (!crossWindowDragTargetLabel) {
+        return;
+      }
+      if (payload.type === "start") {
+        writeDetachedFileTreeDragSnapshot(payload.paths);
+      }
+      void emitTo(
+        crossWindowDragTargetLabel,
+        DETACHED_FILE_TREE_DRAG_BRIDGE_EVENT,
+        payload,
+      ).catch(() => {});
+    },
+    [crossWindowDragTargetLabel],
+  );
+  const rebroadcastCrossWindowTreeDrag = useCallback(() => {
+    if (!crossWindowDragTargetLabel) {
+      return;
+    }
+    const paths = activeCrossWindowDragPathsRef.current;
+    if (paths.length === 0) {
+      return;
+    }
+    const now = Date.now();
+    if (
+      now - lastCrossWindowDragBroadcastRef.current <
+      CROSS_WINDOW_TREE_DRAG_REBROADCAST_THROTTLE_MS
+    ) {
+      return;
+    }
+    lastCrossWindowDragBroadcastRef.current = now;
+    broadcastCrossWindowTreeDrag({
+      type: "start",
+      paths,
+    });
+  }, [broadcastCrossWindowTreeDrag, crossWindowDragTargetLabel]);
   const canTrashSelectedNode =
     selectedNodeType !== null && selectedNodePath !== null && selectedNodePath.length > 0;
 
@@ -1658,9 +1706,15 @@ export function FileTreePanel({
                 clearFileTreeDragBridge();
               }
               const absolutePaths = uniqueSourcePaths.map((path) => resolvePath(path));
+              activeCrossWindowDragPathsRef.current = absolutePaths;
+              lastCrossWindowDragBroadcastRef.current = Date.now();
               setFileTreeDragBridge(absolutePaths);
               window.__fileTreeDragCleanup = bindChatDropTargetsForTreeDrag(absolutePaths);
               setFileTreeDragPosition(event.clientX, event.clientY);
+              broadcastCrossWindowTreeDrag({
+                type: "start",
+                paths: absolutePaths,
+              });
               if (!event.dataTransfer) {
                 return;
               }
@@ -1671,8 +1725,11 @@ export function FileTreePanel({
             }}
             onDrag={(event: DragEvent<HTMLButtonElement>) => {
               setFileTreeDragPosition(event.clientX, event.clientY);
+              rebroadcastCrossWindowTreeDrag();
             }}
             onDragEnd={(event: DragEvent<HTMLButtonElement>) => {
+              activeCrossWindowDragPathsRef.current = [];
+              lastCrossWindowDragBroadcastRef.current = 0;
               if (typeof window !== "undefined" && window.__fileTreeDragDropped === true) {
                 clearFileTreeDragBridge();
                 return;
