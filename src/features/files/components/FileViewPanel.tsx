@@ -7,6 +7,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
+import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
 import Columns2 from "lucide-react/dist/esm/icons/columns-2";
 import Pencil from "lucide-react/dist/esm/icons/pencil";
 import Eye from "lucide-react/dist/esm/icons/eye";
@@ -113,13 +114,30 @@ type FileViewPanelProps = {
   ) => void;
   onClose: () => void;
   onInsertText?: (text: string) => void;
+  headerLayout?: "stacked" | "single-row";
+  onSingleRowLeadingAction?: () => void;
+  singleRowLeadingDirection?: "left" | "right";
+  singleRowLeadingLabel?: string;
+  externalChangeMonitoringEnabled?: boolean;
+  externalChangePollIntervalMs?: number;
 };
 
 const markdownExtensions = new Set(["md", "mdx"]);
 const NAVIGATION_REQUEST_TIMEOUT_MS = 8_000;
 const CODE_INTEL_CACHE_TTL_MS = 3_000;
 const CODE_INTEL_REPEAT_DEBOUNCE_MS = 120;
+const EXTERNAL_CHANGE_POLL_INTERVAL_MS = 2_000;
+const EXTERNAL_CHANGE_NOTICE_MS = 3_200;
+const EXTERNAL_CHANGE_ERROR_TOAST_THRESHOLD = 3;
+const EXTERNAL_CHANGE_ERROR_TOAST_COOLDOWN_MS = 30_000;
 type EditorTheme = "light" | "dark";
+
+type ExternalChangeConflict = {
+  diskContent: string;
+  diskTruncated: boolean;
+  updateCount: number;
+  detectedAt: number;
+};
 
 function isMarkdownPath(path: string) {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
@@ -518,6 +536,12 @@ export function FileViewPanel({
   onNavigateToLocation,
   onClose,
   onInsertText,
+  headerLayout = "stacked",
+  onSingleRowLeadingAction,
+  singleRowLeadingDirection = "left",
+  singleRowLeadingLabel,
+  externalChangeMonitoringEnabled = false,
+  externalChangePollIntervalMs = EXTERNAL_CHANGE_POLL_INTERVAL_MS,
 }: FileViewPanelProps) {
   const { t } = useTranslation();
   const isMarkdown = useMemo(() => isMarkdownPath(filePath), [filePath]);
@@ -571,10 +595,21 @@ export function FileViewPanel({
   });
   const [fileReferenceShouldRender, setFileReferenceShouldRender] = useState(false);
   const [fileReferenceVisible, setFileReferenceVisible] = useState(false);
+  const usesSingleRowHeader = headerLayout === "single-row";
+  const [externalChangeConflict, setExternalChangeConflict] =
+    useState<ExternalChangeConflict | null>(null);
+  const [externalCompareOpen, setExternalCompareOpen] = useState(false);
+  const [externalAutoSyncAt, setExternalAutoSyncAt] = useState<number | null>(null);
   const splitResizeCleanupRef = useRef<(() => void) | null>(null);
   const pendingOpenFindPanelRef = useRef(false);
+  const latestIsDirtyRef = useRef(false);
+  const externalDiskSnapshotRef = useRef<{ content: string; truncated: boolean } | null>(null);
+  const externalPollInFlightRef = useRef(false);
+  const externalPollErrorCountRef = useRef(0);
+  const externalPollLastToastAtRef = useRef(0);
 
   const isDirty = content !== savedContentRef.current;
+  latestIsDirtyRef.current = isDirty;
   const gitStatusMap = useMemo(() => {
     const map = new Map<string, string>();
     if (!gitStatusFiles) {
@@ -688,6 +723,10 @@ export function FileViewPanel({
       setContent("");
       savedContentRef.current = "";
       setTruncated(false);
+      setExternalChangeConflict(null);
+      setExternalCompareOpen(false);
+      setExternalAutoSyncAt(null);
+      externalDiskSnapshotRef.current = null;
       return;
     }
 
@@ -728,9 +767,18 @@ export function FileViewPanel({
     readPromise
       .then((response) => {
         if (cancelled || currentRequest !== requestIdRef.current) return;
-        setContent(response.content ?? "");
-        savedContentRef.current = response.content ?? "";
-        setTruncated(Boolean(response.truncated));
+        const nextContent = response.content ?? "";
+        const nextTruncated = Boolean(response.truncated);
+        setContent(nextContent);
+        savedContentRef.current = nextContent;
+        setTruncated(nextTruncated);
+        setExternalChangeConflict(null);
+        setExternalCompareOpen(false);
+        setExternalAutoSyncAt(null);
+        externalDiskSnapshotRef.current = {
+          content: nextContent,
+          truncated: nextTruncated,
+        };
       })
       .catch((err) => {
         if (cancelled || currentRequest !== requestIdRef.current) return;
@@ -808,6 +856,9 @@ export function FileViewPanel({
     setNavigationError(null);
     setDefinitionCandidates([]);
     setReferenceResults(null);
+    setExternalChangeConflict(null);
+    setExternalCompareOpen(false);
+    setExternalAutoSyncAt(null);
   }, [defaultsToPreview, filePath, initialMode, onActiveFileLineRangeChange]);
 
   useEffect(() => {
@@ -873,6 +924,12 @@ export function FileViewPanel({
         await writeWorkspaceFile(workspaceId, workspaceRelativeFilePath, content);
       }
       savedContentRef.current = content;
+      externalDiskSnapshotRef.current = {
+        content,
+        truncated,
+      };
+      setExternalChangeConflict(null);
+      setExternalCompareOpen(false);
     } catch (err) {
       pushErrorToast({
         title: "Failed to save file",
@@ -891,6 +948,167 @@ export function FileViewPanel({
     isSaving,
     truncated,
   ]);
+
+  useEffect(() => {
+    if (!externalAutoSyncAt) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      setExternalAutoSyncAt(null);
+    }, EXTERNAL_CHANGE_NOTICE_MS);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [externalAutoSyncAt]);
+
+  useEffect(() => {
+    if (
+      !externalChangeMonitoringEnabled ||
+      fileReadTarget.domain !== "workspace" ||
+      isBinary ||
+      isLoading
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId = 0;
+    externalPollErrorCountRef.current = 0;
+
+    const scheduleNext = () => {
+      if (cancelled) {
+        return;
+      }
+      timeoutId = window.setTimeout(() => {
+        void pollExternalChange();
+      }, externalChangePollIntervalMs);
+    };
+
+    const pollExternalChange = async () => {
+      if (cancelled || externalPollInFlightRef.current) {
+        scheduleNext();
+        return;
+      }
+      externalPollInFlightRef.current = true;
+      try {
+        const response = await readWorkspaceFile(workspaceId, workspaceRelativeFilePath);
+        if (cancelled) {
+          return;
+        }
+        externalPollErrorCountRef.current = 0;
+        const nextContent = response.content ?? "";
+        const nextTruncated = Boolean(response.truncated);
+        const previousDiskSnapshot = externalDiskSnapshotRef.current;
+        const isSameAsKnownDisk =
+          previousDiskSnapshot?.content === nextContent &&
+          previousDiskSnapshot?.truncated === nextTruncated;
+
+        if (!isSameAsKnownDisk) {
+          externalDiskSnapshotRef.current = {
+            content: nextContent,
+            truncated: nextTruncated,
+          };
+          if (latestIsDirtyRef.current) {
+            setExternalChangeConflict((current) => {
+              if (
+                current &&
+                current.diskContent === nextContent &&
+                current.diskTruncated === nextTruncated
+              ) {
+                return current;
+              }
+              return {
+                diskContent: nextContent,
+                diskTruncated: nextTruncated,
+                updateCount: Math.min(99, (current?.updateCount ?? 0) + 1),
+                detectedAt: Date.now(),
+              };
+            });
+          } else {
+            setContent(nextContent);
+            savedContentRef.current = nextContent;
+            setTruncated(nextTruncated);
+            setExternalCompareOpen(false);
+            setExternalChangeConflict(null);
+            setExternalAutoSyncAt(Date.now());
+          }
+        }
+      } catch (pollError) {
+        if (cancelled) {
+          return;
+        }
+        // Windows and macOS can briefly lock files while an editor performs safe-write.
+        // Ignore transient read failures and retry on the next polling tick.
+        const message = errorMessageFromUnknown(
+          pollError,
+          "Unable to refresh file from disk.",
+        );
+        const isTransientFsError =
+          /permission denied|resource busy|sharing violation|used by another process/i.test(
+            message,
+          );
+        if (!isTransientFsError) {
+          externalPollErrorCountRef.current += 1;
+          const now = Date.now();
+          const shouldNotify =
+            externalPollErrorCountRef.current >= EXTERNAL_CHANGE_ERROR_TOAST_THRESHOLD &&
+            now - externalPollLastToastAtRef.current >=
+              EXTERNAL_CHANGE_ERROR_TOAST_COOLDOWN_MS;
+          if (shouldNotify) {
+            externalPollLastToastAtRef.current = now;
+            externalPollErrorCountRef.current = 0;
+            pushErrorToast({
+              title: "External file monitor is unavailable",
+              message,
+            });
+          }
+        }
+      } finally {
+        externalPollInFlightRef.current = false;
+        scheduleNext();
+      }
+    };
+
+    scheduleNext();
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    externalChangeMonitoringEnabled,
+    externalChangePollIntervalMs,
+    fileReadTarget.domain,
+    isBinary,
+    isLoading,
+    workspaceId,
+    workspaceRelativeFilePath,
+  ]);
+
+  const handleExternalReloadFromDisk = useCallback(() => {
+    if (!externalChangeConflict) {
+      return;
+    }
+    setContent(externalChangeConflict.diskContent);
+    savedContentRef.current = externalChangeConflict.diskContent;
+    setTruncated(externalChangeConflict.diskTruncated);
+    externalDiskSnapshotRef.current = {
+      content: externalChangeConflict.diskContent,
+      truncated: externalChangeConflict.diskTruncated,
+    };
+    setExternalCompareOpen(false);
+    setExternalChangeConflict(null);
+    setExternalAutoSyncAt(Date.now());
+  }, [externalChangeConflict]);
+
+  const handleExternalKeepLocal = useCallback(() => {
+    setExternalCompareOpen(false);
+    setExternalChangeConflict(null);
+  }, []);
+
+  const handleExternalToggleCompare = useCallback(() => {
+    setExternalCompareOpen((current) => !current);
+  }, []);
 
   // Auto-focus CodeMirror when entering edit mode
   useEffect(() => {
@@ -1631,6 +1849,77 @@ export function FileViewPanel({
   );
 
   // ── Topbar ──
+  const renderTopbarActions = (className = "fvp-topbar-right") => (
+    <div className={className}>
+      {!isBinary && (
+        <>
+          {mode === "preview" ? (
+            <div className="fvp-action-group fvp-preview-tools" role="group">
+              <button
+                type="button"
+                className="fvp-action-btn"
+                onClick={handleEnterEdit}
+                disabled={truncated}
+                title={truncated ? t("files.fileTooLarge") : t("files.edit")}
+              >
+                <Pencil size={14} aria-hidden />
+                <span>{t("files.edit")}</span>
+              </button>
+            </div>
+          ) : (
+            <div className="fvp-action-group" role="group">
+              <button
+                type="button"
+                className="ghost fvp-action-btn"
+                onClick={runDefinitionFromCursor}
+                aria-busy={isDefinitionLoading}
+                title={t("files.gotoDefinition")}
+              >
+                <Code size={14} aria-hidden />
+                <span>
+                  {isDefinitionLoading
+                    ? t("files.navigating")
+                    : t("files.gotoDefinition")}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="ghost fvp-action-btn"
+                onClick={runReferencesFromCursor}
+                aria-busy={isReferencesLoading}
+                title={t("files.findReferences")}
+              >
+                <Search size={14} aria-hidden />
+                <span>
+                  {isReferencesLoading
+                    ? t("files.searchingReferences")
+                    : t("files.findReferences")}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="ghost fvp-action-btn"
+                onClick={handleEnterPreview}
+              >
+                <Eye size={14} aria-hidden />
+                <span>{t("files.preview")}</span>
+              </button>
+              <button
+                type="button"
+                className={`primary fvp-action-btn fvp-save-btn ${isDirty ? "" : "is-saved"}`}
+                onClick={handleSave}
+                disabled={!isDirty || isSaving}
+              >
+                <Save size={14} aria-hidden />
+                <span>{isSaving ? t("files.saving") : isDirty ? t("files.save") : t("files.saved")}</span>
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
   const renderTopbar = () => (
     <div className="fvp-topbar">
       <div className="fvp-topbar-left">
@@ -1652,81 +1941,86 @@ export function FileViewPanel({
         {isDirty && <span className="fvp-dirty-dot" aria-label={t("files.unsavedChanges")} />}
         {truncated && <span className="fvp-truncated">{t("files.truncated")}</span>}
       </div>
-      <div className="fvp-topbar-right">
-        {!isBinary && (
-          <>
-            {mode === "preview" ? (
-              <div className="fvp-action-group fvp-preview-tools" role="group">
-                <button
-                  type="button"
-                  className="fvp-action-btn"
-                  onClick={handleEnterEdit}
-                  disabled={truncated}
-                  title={truncated ? t("files.fileTooLarge") : t("files.edit")}
-                >
-                  <Pencil size={14} aria-hidden />
-                  <span>{t("files.edit")}</span>
-                </button>
-              </div>
-            ) : (
-              <div className="fvp-action-group" role="group">
-                <button
-                  type="button"
-                  className="ghost fvp-action-btn"
-                  onClick={runDefinitionFromCursor}
-                  aria-busy={isDefinitionLoading}
-                  title={t("files.gotoDefinition")}
-                >
-                  <Code size={14} aria-hidden />
-                  <span>
-                    {isDefinitionLoading
-                      ? t("files.navigating")
-                      : t("files.gotoDefinition")}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="ghost fvp-action-btn"
-                  onClick={runReferencesFromCursor}
-                  aria-busy={isReferencesLoading}
-                  title={t("files.findReferences")}
-                >
-                  <Search size={14} aria-hidden />
-                  <span>
-                    {isReferencesLoading
-                      ? t("files.searchingReferences")
-                      : t("files.findReferences")}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="ghost fvp-action-btn"
-                  onClick={handleEnterPreview}
-                >
-                  <Eye size={14} aria-hidden />
-                  <span>{t("files.preview")}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`primary fvp-action-btn fvp-save-btn ${isDirty ? "" : "is-saved"}`}
-                  onClick={handleSave}
-                  disabled={!isDirty || isSaving}
-                >
-                  <Save size={14} aria-hidden />
-                  <span>{isSaving ? t("files.saving") : isDirty ? t("files.save") : t("files.saved")}</span>
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+      {renderTopbarActions()}
     </div>
   );
 
-  const renderTabs = () => (
+  const renderExternalChangeNotice = () => {
+    if (!externalChangeConflict && !externalAutoSyncAt) {
+      return null;
+    }
+    if (!externalChangeConflict) {
+      return (
+        <div className="fvp-external-change-banner is-auto-sync" role="status" aria-live="polite">
+          {t("files.externalChangeAutoSynced")}
+        </div>
+      );
+    }
+    return (
+      <div className="fvp-external-change-banner is-conflict" role="status" aria-live="polite">
+        <div className="fvp-external-change-banner-copy">
+          <strong>{t("files.externalChangeConflictTitle")}</strong>
+          <span>
+            {t("files.externalChangeConflictBody", {
+              count: externalChangeConflict.updateCount,
+            })}
+          </span>
+        </div>
+        <div className="fvp-external-change-banner-actions">
+          <button
+            type="button"
+            className="ghost fvp-action-btn"
+            onClick={handleExternalToggleCompare}
+          >
+            {externalCompareOpen ? t("files.externalChangeHideCompare") : t("files.externalChangeCompare")}
+          </button>
+          <button
+            type="button"
+            className="ghost fvp-action-btn"
+            onClick={handleExternalKeepLocal}
+          >
+            {t("files.externalChangeKeepLocal")}
+          </button>
+          <button
+            type="button"
+            className="primary fvp-action-btn"
+            onClick={handleExternalReloadFromDisk}
+          >
+            {t("files.externalChangeReload")}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderExternalComparePanel = () => {
+    if (!externalCompareOpen || !externalChangeConflict) {
+      return null;
+    }
+    const localPreview =
+      content.length > 6_000 ? `${content.slice(0, 6_000)}\n\n...` : content;
+    const diskPreview =
+      externalChangeConflict.diskContent.length > 6_000
+        ? `${externalChangeConflict.diskContent.slice(0, 6_000)}\n\n...`
+        : externalChangeConflict.diskContent;
+    return (
+      <div className="fvp-external-compare">
+        <div className="fvp-external-compare-column">
+          <header>{t("files.externalChangeCompareLocal")}</header>
+          <pre>{localPreview}</pre>
+        </div>
+        <div className="fvp-external-compare-column">
+          <header>{t("files.externalChangeCompareDisk")}</header>
+          <pre>{diskPreview}</pre>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTabs = (className?: string) => (
     <div
       ref={tabsContainerRef}
-      className="fvp-tabs"
+      className={`fvp-tabs${className ? ` ${className}` : ""}`}
       role="tablist"
       aria-label="Open files"
       onContextMenu={openTabContextMenu}
@@ -1772,6 +2066,32 @@ export function FileViewPanel({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+
+  const renderSingleRowHeader = () => (
+    <div className="fvp-header-row">
+      <button
+        type="button"
+        className="icon-button fvp-back"
+        onClick={onSingleRowLeadingAction ?? handleClose}
+        aria-label={singleRowLeadingLabel ?? t("files.backToChat")}
+        title={singleRowLeadingLabel ?? t("files.backToChat")}
+      >
+        {singleRowLeadingDirection === "right" && onSingleRowLeadingAction ? (
+          <ArrowRight size={16} aria-hidden />
+        ) : (
+          <ArrowLeft size={16} aria-hidden />
+        )}
+      </button>
+      <div className="fvp-header-row-tabs">
+        {renderTabs("fvp-tabs-inline")}
+      </div>
+      <div className="fvp-header-row-right">
+        {isDirty ? <span className="fvp-dirty-dot" aria-label={t("files.unsavedChanges")} /> : null}
+        {truncated ? <span className="fvp-truncated">{t("files.truncated")}</span> : null}
+        {renderTopbarActions("fvp-header-actions")}
       </div>
     </div>
   );
@@ -2132,8 +2452,8 @@ export function FileViewPanel({
   };
 
   return (
-    <div className="fvp" ref={panelRootRef}>
-      {renderTabs()}
+    <div className={`fvp${usesSingleRowHeader ? " fvp-single-row-header" : ""}`} ref={panelRootRef}>
+      {usesSingleRowHeader ? renderSingleRowHeader() : renderTabs()}
       {tabContextMenu.visible && canCloseAllTabs ? (
         <div
           ref={tabContextMenuRef}
@@ -2151,7 +2471,9 @@ export function FileViewPanel({
           </button>
         </div>
       ) : null}
-      {renderTopbar()}
+      {!usesSingleRowHeader ? renderTopbar() : null}
+      {renderExternalChangeNotice()}
+      {renderExternalComparePanel()}
       <div className="fvp-body">{renderContent()}</div>
       {renderNavigationPanel()}
       {renderFooter()}

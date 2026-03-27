@@ -110,18 +110,23 @@ export function DetachedFileExplorerWindow() {
     void refreshGitStatus();
   }, [isFocused, refreshFiles, refreshGitStatus, session]);
 
-  if (!session) {
-      return (
-      <div className={`${appClassName} detached-file-explorer-window`} style={detachedWindowStyle}>
-        {isMacDesktop ? (
-          <header className="detached-file-explorer-titlebar" data-tauri-drag-region="true">
-            <div className="detached-file-explorer-titlebar-copy">
-              <span className="detached-file-explorer-titlebar-label">
-                {t("files.detachedExplorerTitle")}
-              </span>
-            </div>
-          </header>
+  const renderCompactMenubar = () => (
+    <header className="detached-file-explorer-menubar" data-tauri-drag-region="true">
+      <div className="detached-file-explorer-menubar-copy">
+        <span className="detached-file-explorer-menubar-label">
+          {t("files.detachedExplorerTitle")}
+        </span>
+        {session ? (
+          <strong className="detached-file-explorer-menubar-title">{session.workspaceName}</strong>
         ) : null}
+      </div>
+    </header>
+  );
+
+  if (!session) {
+    return (
+      <div className={`${appClassName} detached-file-explorer-window`} style={detachedWindowStyle}>
+        {renderCompactMenubar()}
         <div className="detached-file-explorer-unavailable">
           <p className="detached-file-explorer-empty-title">
             {t("files.detachedExplorerUnavailableTitle")}
@@ -136,16 +141,7 @@ export function DetachedFileExplorerWindow() {
 
   return (
     <div className={`${appClassName} detached-file-explorer-window`} style={detachedWindowStyle}>
-      {isMacDesktop ? (
-        <header className="detached-file-explorer-titlebar" data-tauri-drag-region="true">
-          <div className="detached-file-explorer-titlebar-copy">
-            <span className="detached-file-explorer-titlebar-label">
-              {t("files.detachedExplorerTitle")}
-            </span>
-            <strong className="detached-file-explorer-titlebar-title">{session.workspaceName}</strong>
-          </div>
-        </header>
-      ) : null}
+      {renderCompactMenubar()}
       <FileExplorerWorkspace
         workspaceId={session.workspaceId}
         workspaceName={session.workspaceName}
@@ -168,6 +164,8 @@ export function DetachedFileExplorerWindow() {
         onCloseTab={closeTab}
         onCloseAllTabs={closeAllTabs}
         onRefreshFiles={refreshFiles}
+        externalChangeMonitoringEnabled={isFocused}
+        fileViewHeaderLayout="single-row"
       />
     </div>
   );

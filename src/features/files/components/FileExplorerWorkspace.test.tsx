@@ -33,7 +33,18 @@ vi.mock("./FileTreePanel", () => ({
 vi.mock("./FileViewPanel", () => ({
   FileViewPanel: (props: any) => {
     fileViewPanelSpy(props);
-    return <div data-testid="file-view-panel">{props.filePath}</div>;
+    return (
+      <div data-testid="file-view-panel">
+        <span data-testid="file-view-panel-direction">{props.singleRowLeadingDirection ?? "none"}</span>
+        <button type="button" onClick={() => props.onSingleRowLeadingAction?.()}>
+          toggle-detached-sidebar
+        </button>
+        <button type="button" onClick={() => props.onClose?.()}>
+          close-tabs
+        </button>
+        {props.filePath}
+      </div>
+    );
   },
 }));
 
@@ -67,6 +78,7 @@ function WorkspaceHarness() {
       onCloseTab={() => undefined}
       onCloseAllTabs={() => setActiveFilePath(null)}
       onRefreshFiles={() => undefined}
+      fileViewHeaderLayout="single-row"
     />
   );
 }
@@ -79,7 +91,17 @@ describe("FileExplorerWorkspace", () => {
     expect(screen.getByTestId("spec-hub-panel")).not.toBeNull();
 
     fireEvent.click(screen.getByText("open-file"));
-    expect(screen.getByTestId("file-view-panel").textContent).toBe("src/index.ts");
+    expect(screen.getByTestId("file-view-panel").textContent).toContain("src/index.ts");
+    expect(screen.getByTestId("file-view-panel-direction").textContent).toBe("left");
+    fireEvent.click(screen.getByText("toggle-detached-sidebar"));
+    expect(screen.getByTestId("file-view-panel-direction").textContent).toBe("right");
+    fireEvent.click(screen.getByText("close-tabs"));
+    expect(
+      screen.getByRole("button", { name: "sidebar.sidebarExpand" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "sidebar.sidebarExpand" }));
+    fireEvent.click(screen.getByText("open-file"));
+    expect(screen.getByTestId("file-view-panel-direction").textContent).toBe("left");
     expect(fileTreePanelSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({
         gitStatusFiles: [{ path: "src/index.ts", status: "M", additions: 1, deletions: 0 }],

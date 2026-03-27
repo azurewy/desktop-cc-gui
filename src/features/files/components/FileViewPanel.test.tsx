@@ -334,6 +334,35 @@ describe("FileViewPanel navigation", () => {
     expect(onToggleEditorFileMaximized).toHaveBeenCalledTimes(1);
   });
 
+  it("renders tabs and action buttons in a single header row when requested", async () => {
+    vi.mocked(readWorkspaceFile).mockResolvedValue({
+      content: "class Main {}",
+      truncated: false,
+    });
+
+    const { container } = render(
+      <FileViewPanel
+        workspaceId="ws-single-row-header"
+        workspacePath="/repo"
+        filePath="src/Main.java"
+        openTabs={["src/Main.java", "src/Foo.java"]}
+        activeTabPath="src/Main.java"
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={vi.fn()}
+        onClose={vi.fn()}
+        headerLayout="single-row"
+      />,
+    );
+
+    await screen.findByTestId("mock-codemirror");
+    expect(container.querySelector(".fvp-header-row")).toBeTruthy();
+    expect(container.querySelector(".fvp-topbar")).toBeNull();
+    expect(screen.getByRole("tablist", { name: "Open files" })).toBeTruthy();
+    expect(screen.getByTitle(/gotoDefinition/i)).toBeTruthy();
+  });
+
   it("prefers provided highlight markers over workspace git diff fetch", async () => {
     vi.mocked(readWorkspaceFile).mockResolvedValue({
       content: "line 1\nline 2\nline 3",
@@ -1036,5 +1065,111 @@ describe("FileViewPanel editor theme selection", () => {
 
     const editor = await screen.findByTestId("mock-codemirror");
     expect(editor.getAttribute("data-editor-theme")).toBe("dark");
+  });
+});
+
+describe("FileViewPanel external change awareness in detached mode", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("auto-syncs clean buffer when disk content changes", async () => {
+    vi.mocked(readWorkspaceFile)
+      .mockResolvedValueOnce({ content: "const value = 1;", truncated: false })
+      .mockResolvedValue({ content: "const value = 2;", truncated: false });
+
+    render(
+      <FileViewPanel
+        workspaceId="ws-ext-clean"
+        workspacePath="/repo"
+        filePath="src/value.ts"
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={vi.fn()}
+        onClose={vi.fn()}
+        externalChangeMonitoringEnabled
+        externalChangePollIntervalMs={20}
+      />,
+    );
+
+    const editor = await screen.findByTestId("mock-codemirror");
+    expect((editor as HTMLTextAreaElement).value).toBe("const value = 1;");
+
+    await waitFor(() => {
+      expect(screen.getByText("files.externalChangeAutoSynced")).toBeTruthy();
+    });
+    expect((screen.getByTestId("mock-codemirror") as HTMLTextAreaElement).value)
+      .toBe("const value = 2;");
+  });
+
+  it("shows conflict actions for dirty buffer and can keep local edits", async () => {
+    vi.mocked(readWorkspaceFile)
+      .mockResolvedValueOnce({ content: "console.log('v1');", truncated: false })
+      .mockResolvedValue({ content: "console.log('v2');", truncated: false });
+
+    render(
+      <FileViewPanel
+        workspaceId="ws-ext-dirty"
+        workspacePath="/repo"
+        filePath="src/app.ts"
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={vi.fn()}
+        onClose={vi.fn()}
+        externalChangeMonitoringEnabled
+        externalChangePollIntervalMs={20}
+      />,
+    );
+
+    const editor = await screen.findByTestId("mock-codemirror");
+    fireEvent.change(editor, { target: { value: "console.log('local');" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("files.externalChangeConflictTitle")).toBeTruthy();
+      expect(screen.getByText("files.externalChangeKeepLocal")).toBeTruthy();
+    });
+    expect((screen.getByTestId("mock-codemirror") as HTMLTextAreaElement).value)
+      .toBe("console.log('local');");
+
+    fireEvent.click(screen.getByText("files.externalChangeKeepLocal"));
+    await waitFor(() => {
+      expect(screen.queryByText("files.externalChangeConflictTitle")).toBeNull();
+    });
+  });
+
+  it("reloads disk content when user chooses reload action", async () => {
+    vi.mocked(readWorkspaceFile)
+      .mockResolvedValueOnce({ content: "line-a", truncated: false })
+      .mockResolvedValue({ content: "line-b", truncated: false });
+
+    render(
+      <FileViewPanel
+        workspaceId="ws-ext-reload"
+        workspacePath="/repo"
+        filePath="src/reload.ts"
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={vi.fn()}
+        onClose={vi.fn()}
+        externalChangeMonitoringEnabled
+        externalChangePollIntervalMs={20}
+      />,
+    );
+
+    const editor = await screen.findByTestId("mock-codemirror");
+    fireEvent.change(editor, { target: { value: "line-local" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("files.externalChangeReload")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByText("files.externalChangeReload"));
+
+    await waitFor(() => {
+      expect((screen.getByTestId("mock-codemirror") as HTMLTextAreaElement).value).toBe("line-b");
+    });
   });
 });

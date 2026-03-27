@@ -127,6 +127,7 @@ describe("DetachedFileExplorerWindow", () => {
     expect(fileExplorerWorkspaceMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         gitStatusFiles: [{ path: "src/index.ts", status: "M", additions: 2, deletions: 1 }],
+        fileViewHeaderLayout: "single-row",
       }),
     );
     expect(useCodeCssVarsMock).toHaveBeenCalledWith(

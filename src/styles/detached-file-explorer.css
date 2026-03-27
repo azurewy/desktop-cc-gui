@@ -6,7 +6,9 @@
   height: 100vh;
   min-width: 0;
   min-height: 0;
-  background: var(--surface-panel);
+  background: var(--surface-messages);
+  --detached-menubar-bg: color-mix(in srgb, var(--surface-topbar) 82%, var(--surface-messages) 18%);
+  --detached-menubar-border: color-mix(in srgb, var(--border-subtle) 88%, transparent);
 }
 
 .detached-file-explorer-titlebar {
@@ -17,6 +19,45 @@
   background: var(--surface-topbar);
   border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
   flex: 0 0 auto;
+}
+
+.detached-file-explorer-menubar {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--detached-menubar-border);
+  background: var(--detached-menubar-bg);
+  flex: 0 0 auto;
+}
+
+.macos-desktop .detached-file-explorer-menubar {
+  padding-left: calc(68px + var(--titlebar-inset-left, 0px));
+}
+
+.detached-file-explorer-menubar-copy {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.detached-file-explorer-menubar-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.detached-file-explorer-menubar-title {
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .detached-file-explorer-titlebar-copy {
@@ -57,14 +98,27 @@
   background: var(--surface-messages);
 }
 
+.detached-file-explorer-workspace.is-sidebar-collapsed {
+  grid-template-columns: 0 0 minmax(0, 1fr);
+}
+
 .detached-file-explorer-sidebar {
   min-width: 0;
   min-height: 0;
   background: var(--surface-messages);
 }
 
+.detached-file-explorer-workspace.is-sidebar-collapsed .detached-file-explorer-sidebar {
+  visibility: hidden;
+}
+
 .detached-file-explorer-sidebar .file-tree-panel {
   height: 100%;
+}
+
+/* Detached explorer does not support composer mention insertion; hide row "+" action. */
+.detached-file-explorer-window .file-tree-action {
+  display: none;
 }
 
 .detached-file-explorer-resizer {
@@ -73,6 +127,11 @@
   cursor: col-resize;
   z-index: 2;
   background: transparent;
+}
+
+.detached-file-explorer-workspace.is-sidebar-collapsed .detached-file-explorer-resizer {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .detached-file-explorer-resizer::before {
@@ -99,9 +158,45 @@
 }
 
 .detached-file-explorer-viewer {
+  position: relative;
   min-width: 0;
   min-height: 0;
   background: var(--surface-messages);
+}
+
+.detached-file-explorer-sidebar-expand {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  transition:
+    color 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.detached-file-explorer-sidebar-expand-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.detached-file-explorer-sidebar-expand:hover,
+.detached-file-explorer-sidebar-expand:focus-visible {
+  color: var(--text-strong);
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--surface-hover) 68%, var(--surface-card));
 }
 
 .detached-file-explorer-empty,

@@ -42,6 +42,8 @@ type FileExplorerWorkspaceProps = {
   onCloseTab: (path: string) => void;
   onCloseAllTabs: () => void;
   onRefreshFiles?: () => void;
+  externalChangeMonitoringEnabled?: boolean;
+  fileViewHeaderLayout?: "stacked" | "single-row";
 };
 
 export function FileExplorerWorkspace({
@@ -66,11 +68,14 @@ export function FileExplorerWorkspace({
   onCloseTab,
   onCloseAllTabs,
   onRefreshFiles,
+  externalChangeMonitoringEnabled = false,
+  fileViewHeaderLayout = "stacked",
 }: FileExplorerWorkspaceProps) {
   const { t } = useTranslation();
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const [viewerMode, setViewerMode] = useState<"file" | "spec">("file");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() =>
     clampSidebarWidth(
       getClientStoreSync<number>("layout", DETACHED_EXPLORER_SIDEBAR_WIDTH_KEY) ??
@@ -144,11 +149,15 @@ export function FileExplorerWorkspace({
     },
     [onOpenFile],
   );
+  const handleToggleSidebar = useCallback(() => {
+    setSidebarCollapsed((current) => !current);
+  }, []);
+  const showViewerExpandButton = sidebarCollapsed && (viewerMode === "spec" || !activeFilePath);
 
   return (
     <div
       ref={workspaceRef}
-      className="detached-file-explorer-workspace"
+      className={`detached-file-explorer-workspace${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`}
       style={{
         "--detached-file-explorer-sidebar-width": `${sidebarWidth}px`,
       } as CSSProperties}
@@ -187,6 +196,20 @@ export function FileExplorerWorkspace({
         onPointerDown={handleResizeStart}
       />
       <div className="detached-file-explorer-viewer">
+        {showViewerExpandButton ? (
+          <button
+            type="button"
+            className="detached-file-explorer-sidebar-expand"
+            onClick={handleToggleSidebar}
+            aria-label={t("sidebar.sidebarExpand")}
+            title={t("sidebar.sidebarExpand")}
+          >
+            <span
+              className="codicon codicon-chevron-right detached-file-explorer-sidebar-expand-icon"
+              aria-hidden
+            />
+          </button>
+        ) : null}
         {viewerMode === "spec" ? (
           <SpecHub
             workspaceId={workspaceId}
@@ -213,6 +236,19 @@ export function FileExplorerWorkspace({
             onSelectOpenAppId={onSelectOpenAppId}
             onNavigateToLocation={handleOpenWorkspaceFile}
             onClose={onCloseAllTabs}
+            externalChangeMonitoringEnabled={externalChangeMonitoringEnabled}
+            headerLayout={fileViewHeaderLayout}
+            onSingleRowLeadingAction={
+              fileViewHeaderLayout === "single-row" ? handleToggleSidebar : undefined
+            }
+            singleRowLeadingDirection={sidebarCollapsed ? "right" : "left"}
+            singleRowLeadingLabel={
+              fileViewHeaderLayout === "single-row"
+                ? sidebarCollapsed
+                  ? t("sidebar.sidebarExpand")
+                  : t("sidebar.sidebarCollapse")
+                : undefined
+            }
           />
         ) : (
           <div className="detached-file-explorer-empty">
