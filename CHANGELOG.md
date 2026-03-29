@@ -2,59 +2,41 @@
 
 ---
 
-##### **2026年3月28日（v0.3.6）**
+##### **2026年3月29日（v0.3.6）**
 
 English:
 
 ✨ Features
-- Complete Web Git RPC support in local daemon and improve Git operation coverage in Web mode
-- Harden multi-engine history-chain recovery in Web mode for more reliable cross-engine session replay
-- Enhance Session Activity with richer `search_query` tool-chain rendering and history restoration
-- Add a client icon before Home Chat title and polish the welcome-area presentation
-- Redesign Skills management into a tree-based global browser across `.claude/skills`, `.codex/skills`, `.gemini/skills`, and `.agents/skills`
-- Add in-panel editing/saving for Skills files with GitHub-style markdown/structured/code preview rendering
-- Add draggable splitter support in Skills view to resize/collapse the left file tree
+- Redesign Skills management into a tree-based global browser that unifies multi-source skill directories, and add in-panel editing/saving with structured preview so users can inspect and update skills without leaving Settings
+- Complete missing Web Git RPC coverage in local daemon and split `daemon_state` into dedicated modules, making Web-mode Git actions more complete while improving daemon lifecycle maintainability
+- Harden multi-engine history-chain recovery in Web mode by reorganizing oversized bridge/runtime paths, reducing cross-engine history replay fragility and improving recovery consistency after interruptions
+- Refactor real-time canvas controls in the message flow into clearer control groups/constants, and fix focus-follow regressions so interaction context remains stable during live updates
 
 🔧 Improvements
-- Unify File changes and Batch icons with refined theme color palette for better visual consistency
-- Add external absolute directory/file RPC chain for Skills browsing in both local and remote daemon modes
-- Split Skills-related settings styles into a dedicated stylesheet to satisfy large-file governance threshold
+- Align file-tree Git folder status coloring with actual changed-path semantics, including test and style alignment, so folder-level change scanning is more predictable and visually consistent
 
 🐛 Fixes
-- Fix Claude Thread session switching and history chain disruption caused by screenshot messages
-- Reduce noisy "missing file" warnings in detached file-explorer monitoring
-- Fix daemon binary path resolution failure during local web-service auto-start
-- Fix history-fetch lock-up for non-default projects after a single failed request
-- Align file-tree Git folder status coloring with change-path semantics
-- Fix packaged-build white screen caused by missing Web static resources
-- Fix missing Skills entries in non-default engines caused by external directory loading path mismatches
-- Fix splitter drag interrupted-state residue (cursor/user-select) in Win/macOS edge interruption scenarios
+- Fix local web-service auto-start failures caused by daemon binary discovery issues by adding a more robust binary-location fallback path in bootstrap logic
+- Fix non-default project history fetching getting stuck after a single failed request by correcting error-state reset behavior in the Web loading chain
+- Fix packaged-build white screen issues caused by missing/incorrect Web static resource resolution by repairing runtime static path wiring
+- Fix duplicated skill chips/tokens when selecting same-name skills from multi-source entries (global/project overlap) by tightening token grouping and de-dup assembly logic
 
 中文：
 
 ✨ Features
-- 补齐本地 daemon 的 Web Git RPC 能力，完善 Web 模式下的 Git 操作覆盖
-- 加固 Web 模式多引擎历史链路恢复，提升跨引擎会话回放稳定性
-- 增强 Session Activity 的 `search_query` 工具链路展示与历史恢复能力
-- 在 Home Chat 标题前新增客户端图标，并优化欢迎区域展示
-- 重构 Skills 管理模块为树形全局浏览器，统一支持 `.claude/skills`、`.codex/skills`、`.gemini/skills`、`.agents/skills`
-- 新增 Skills 详情区就地编辑/保存能力，并接入 GitHub 风格的 Markdown/结构化/代码预览渲染
-- 新增 Skills 视图拖拽分隔条，支持左侧文件树宽度调整与折叠
+- 将 Skills 管理重构为树形全局浏览器，统一聚合多来源技能目录，并补齐面板内编辑/保存与结构化预览能力，减少在设置与文件系统之间来回切换
+- 补齐本地 daemon 在 Web 模式下缺失的 Git RPC 覆盖，并拆分 `daemon_state` 为独立职责模块，在提升 Git 操作完整度的同时改善 daemon 生命周期可维护性
+- 通过重组多引擎桥接与运行时链路、拆分超大 Web 模块，加固 Web 模式历史链路恢复能力，降低跨引擎会话回放在中断后的脆弱性
+- 重构消息实时幕布控制为更清晰的控制组与常量映射，并修复焦点跟随回归问题，保证实时更新时交互上下文稳定
 
 🔧 Improvements
-- 统一 File changes 与 Batch 图标并完善主题配色，提升视觉一致性
-- 补齐 Skills 浏览在本地与 remote daemon 模式下的绝对路径目录/文件 RPC 链路
-- 将 Skills 相关设置样式拆分为独立样式文件，满足 large-file 治理阈值
+- 对齐文件树 Git 文件夹状态着色与实际变更路径语义，并同步测试与样式表现，使目录级变更扫描更可预测、视觉反馈更一致
 
 🐛 Fixes
-- 修复截图消息导致 Claude Thread 会话切换和历史链路断裂的问题
-- 降噪 detached 文件窗口监控中的“缺失文件”告警提示
-- 修复本地 web-service 自动启动时 daemon 二进制路径定位失败
-- 修复非默认项目历史拉取在单次失败后锁死的问题
-- 对齐文件树 Git 文件夹状态着色与变更路径语义
-- 修复安装包缺失 Web 静态资源导致白屏路径异常
-- 修复非默认引擎 Skills 列表因外部目录加载路径不一致导致的数据缺失问题
-- 修复 Win/macOS 边界中断场景下分隔条拖拽后光标/选择状态残留问题
+- 修复本地 web-service 自动启动时 daemon 二进制定位失败的问题：在 bootstrap 链路增加更稳健的二进制定位兜底路径
+- 修复非默认项目历史拉取在单次失败后进入“锁死”状态的问题：纠正 Web 侧失败状态复位逻辑，恢复后续请求可继续执行
+- 修复安装包场景下 Web 静态资源解析缺失/错误导致白屏的问题：修正运行时静态资源路径装配链路
+- 修复同名 Skill 在多来源（global/project）并存时选择后出现重复 skill chip/token 的问题：收紧 token 分组键与去重组装逻辑
 
 ---
 
