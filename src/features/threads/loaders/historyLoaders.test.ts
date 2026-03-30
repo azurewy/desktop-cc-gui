@@ -181,11 +181,62 @@ describe("history loaders", () => {
       expect.objectContaining({
         id: "gemini-tool-1",
         kind: "tool",
-        toolType: "write_file",
+        toolType: "fileChange",
         status: "completed",
         output: "done",
       }),
     );
+    expect(items[0]?.kind).toBe("tool");
+    if (items[0]?.kind === "tool") {
+      expect(items[0].changes).toEqual([
+        expect.objectContaining({
+          path: "src/a.ts",
+          kind: "modified",
+        }),
+      ]);
+    }
+  });
+
+  it("normalizes gemini EditFile history rows to fileChange cards", () => {
+    const items = parseGeminiHistoryMessages([
+      {
+        id: "gemini-edit-1",
+        kind: "tool",
+        toolType: "EditFile",
+        title: "EditFile",
+        toolInput: {
+          path: "src/App.tsx",
+          old_string: "const before = true;",
+          new_string: "const after = true;",
+        },
+      },
+      {
+        id: "gemini-edit-1-result",
+        kind: "tool",
+        toolType: "result",
+        title: "Result",
+        text: "updated",
+      },
+    ]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toEqual(
+      expect.objectContaining({
+        id: "gemini-edit-1",
+        kind: "tool",
+        toolType: "fileChange",
+        status: "completed",
+      }),
+    );
+    expect(items[0]?.kind).toBe("tool");
+    if (items[0]?.kind === "tool") {
+      expect(items[0].changes).toEqual([
+        expect.objectContaining({
+          path: "src/App.tsx",
+          kind: "modified",
+        }),
+      ]);
+    }
   });
 
   it("merges adjacent gemini reasoning rows while preserving tool boundaries", () => {

@@ -1168,11 +1168,64 @@ function appendReasoningTextWithoutReplacement(existing: string, incoming: strin
   return `${existing}${incoming}`;
 }
 
+function shouldTreatGeminiReasoningAsSnapshot(existing: string, incoming: string) {
+  const normalizedExisting = normalizeReasoningReadableText(existing);
+  const normalizedIncoming = normalizeReasoningReadableText(incoming);
+  if (!normalizedExisting || !normalizedIncoming) {
+    return true;
+  }
+  const comparableExisting = compactComparableStreamingText(normalizedExisting);
+  const comparableIncoming = compactComparableStreamingText(normalizedIncoming);
+  if (!comparableExisting || !comparableIncoming) {
+    return true;
+  }
+  if (
+    comparableIncoming.includes(comparableExisting) ||
+    comparableExisting.includes(comparableIncoming)
+  ) {
+    return true;
+  }
+  const minComparableLength = Math.min(
+    comparableExisting.length,
+    comparableIncoming.length,
+  );
+  if (minComparableLength >= 24) {
+    const sharedComparablePrefix = sharedPrefixLength(
+      comparableExisting,
+      comparableIncoming,
+    );
+    if (sharedComparablePrefix >= Math.floor(minComparableLength * 0.7)) {
+      return comparableIncoming.length >= comparableExisting.length;
+    }
+  }
+  return false;
+}
+
 function mergeReasoningTextForThread(
   threadId: string,
   existing: string,
   incoming: string,
 ) {
+  if (isGeminiReasoningThread(threadId)) {
+    const normalizedExisting = normalizeReasoningReadableText(existing);
+    const normalizedIncoming = normalizeReasoningReadableText(incoming);
+    if (!normalizedExisting) {
+      return normalizedIncoming;
+    }
+    if (!normalizedIncoming) {
+      return normalizedExisting;
+    }
+    const merged = shouldTreatGeminiReasoningAsSnapshot(
+      normalizedExisting,
+      normalizedIncoming,
+    )
+      ? mergeReasoningSnapshotText(normalizedExisting, normalizedIncoming)
+      : appendReasoningTextWithoutReplacement(
+        normalizedExisting,
+        normalizedIncoming,
+      );
+    return normalizeReasoningReadableText(merged);
+  }
   if (isClaudeReasoningThread(threadId)) {
     return normalizeReasoningReadableText(
       appendReasoningTextWithoutReplacement(existing, incoming),
