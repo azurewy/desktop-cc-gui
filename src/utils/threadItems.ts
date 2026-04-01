@@ -1,4 +1,5 @@
 import type { ConversationItem } from "../types";
+import { normalizeAgentIcon } from "./agentIcons";
 import { summarizeExploration } from "./threadItemsExploreSummary";
 import {
   inferFileChangesFromCommandExecutionArtifacts,
@@ -9,8 +10,19 @@ import {
 } from "./threadItemsFileChanges";
 
 const MAX_ITEM_TEXT = 20000;
-const TOOL_OUTPUT_RECENT_ITEMS = 40;
+const TOOL_OUTPUT_RECENT_ITEMS = 12;
+const NO_TRUNCATE_TOOL_OUTPUT_RECENT_ITEMS = 4;
 const NO_TRUNCATE_TOOL_TYPES = new Set(["fileChange", "commandExecution"]);
+const MAX_DEFAULT_THREAD_TITLE_CHARS = 10;
+const USER_INPUT_BLOCK_MARKER_REGEX = /\[User Input\]\s*/g;
+const AGENT_PROMPT_BLOCK_AT_TAIL_REGEX =
+  /(?:\r?\n){2}##\s*Agent Role and Instructions\s*(?:\r?\n){2}([\s\S]*)$/;
+const AGENT_PROMPT_NAME_LINE_REGEX =
+  /^(?:agent\s*name|selected\s*agent|智能体(?:名称|标题)?|agent)\s*[:：]\s*(.+)$/i;
+const AGENT_PROMPT_ICON_LINE_REGEX =
+  /^(?:agent\s*icon|selected\s*agent\s*icon|智能体图标|agent\s*icon\s*id)\s*[:：]\s*(.+)$/i;
+const TITLE_INJECTED_LINE_PREFIX_REGEX =
+  /^\[(?:System|Session Spec Link|Spec Root Priority|Skill Prompt|Commons Prompt)\][^\n]*(?:\r?\n|$)/i;
 const EDIT_TOOL_TYPE_HINTS = new Set([
   "edit",
   "edit_file",
@@ -130,6 +142,25 @@ function asNumber(value: unknown) {
   return null;
 }
 
+function asBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value === 1 ? true : value === 0 ? false : null;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1" || normalized === "yes") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "0" || normalized === "no") {
+      return false;
+    }
+  }
+  return null;
+}
+
 function formatPlanSteps(value: unknown) {
   if (!Array.isArray(value)) {
     return "";
@@ -230,8 +261,9 @@ function joinReasoningFragments(parts: string[]) {
   if (fragments.length === 0) {
     return "";
   }
+  const firstFragment = fragments[0] ?? "";
   if (fragments.length === 1) {
-    return fragments[0];
+    return firstFragment;
   }
   return fragments.slice(1).reduce((combined, fragment) => {
     const previousChar = combined[combined.length - 1] ?? "";
@@ -240,7 +272,7 @@ function joinReasoningFragments(parts: string[]) {
       /[A-Za-z0-9]/.test(previousChar) &&
       /[A-Za-z0-9]/.test(nextChar);
     return shouldInsertSpace ? `${combined} ${fragment}` : `${combined}${fragment}`;
-  }, fragments[0]);
+  }, firstFragment);
 }
 
 function extractReasoningText(value: unknown): string {
@@ -320,6 +352,9 @@ function findDuplicateReasoningSnapshotIndex(
   }
   for (let index = list.length - 1; index >= 0; index -= 1) {
     const candidate = list[index];
+    if (!candidate) {
+      continue;
+    }
     if (candidate.kind === "message" && candidate.role === "user") {
       break;
     }
@@ -912,7 +947,8 @@ function collapseRepeatedAssistantFullText(value: string) {
     }
     let nonSpaceCount = 0;
     for (let index = 0; index < trimmed.length; index += 1) {
-      if (!/\s/.test(trimmed[index])) {
+      const currentChar = trimmed[index];
+      if (currentChar && !/\s/.test(currentChar)) {
         nonSpaceCount += 1;
       }
       if (nonSpaceCount >= chunkLength) {
@@ -1518,7 +1554,13 @@ export function prepareThreadItems(items: ConversationItem[]) {
       coalesced.push(item);
       continue;
     }
-    coalesced[index] = mergeSameKindItem(coalesced[index], item);
+    const existing = coalesced[index];
+    if (!existing) {
+      coalescedIndexByKey.set(key, coalesced.length);
+      coalesced.push(item);
+      continue;
+    }
+    coalesced[index] = mergeSameKindItem(existing, item);
   }
   const filtered: ConversationItem[] = [];
   for (const item of coalesced) {
@@ -1545,8 +1587,18 @@ export function prepareThreadItems(items: ConversationItem[]) {
   const normalizedAskUserItems = normalizeAskUserQuestionHistoryItems(filtered);
   const summarized = summarizeExploration(normalizedAskUserItems);
   const cutoff = Math.max(0, summarized.length - TOOL_OUTPUT_RECENT_ITEMS);
+  const noTruncateCutoff = Math.max(
+    0,
+    summarized.length - NO_TRUNCATE_TOOL_OUTPUT_RECENT_ITEMS,
+  );
   return summarized.map((item, index) => {
-    if (index >= cutoff || item.kind !== "tool") {
+    if (item.kind !== "tool") {
+      return item;
+    }
+    const isOlderToolItem = index < cutoff;
+    const allowNoTruncate =
+      NO_TRUNCATE_TOOL_TYPES.has(item.toolType) && index >= noTruncateCutoff;
+    if (!isOlderToolItem || allowNoTruncate) {
       return item;
     }
     const output = item.output ? truncateText(item.output) : item.output;
@@ -1571,7 +1623,11 @@ export function upsertItem(list: ConversationItem[], item: ConversationItem) {
     return [...list, item];
   }
   const next = [...list];
-  next[index] = mergeSameKindItem(next[index], item);
+  const existing = next[index];
+  if (!existing) {
+    return [...list, item];
+  }
+  next[index] = mergeSameKindItem(existing, item);
   return next;
 }
 
@@ -1601,11 +1657,159 @@ export function getThreadTimestamp(thread: Record<string, unknown>) {
 }
 
 export function previewThreadName(text: string, fallback: string) {
-  const trimmed = text.trim();
-  if (!trimmed) {
+  const strippedAgentPrompt = stripAgentPromptBlockFromTail(text);
+  const strippedModeFallback = stripModeFallbackBlock(strippedAgentPrompt);
+  const strippedMemory = stripInjectedProjectMemoryBlock(strippedModeFallback);
+  const extractedUserInput = extractLatestUserInputTextPreserveFormatting(strippedMemory);
+  const strippedInjectedPrefix = stripInjectedPrefixLines(extractedUserInput);
+  const collapsed = strippedInjectedPrefix.replace(/\s+/g, " ").trim();
+  if (!collapsed) {
     return fallback;
   }
-  return trimmed;
+  const clipped = clipByChars(collapsed, MAX_DEFAULT_THREAD_TITLE_CHARS).trim();
+  return clipped || fallback;
+}
+
+function extractAssistantFinalFlag(item: Record<string, unknown>): boolean | undefined {
+  const candidates: unknown[] = [
+    item.isFinal,
+    item.is_final,
+    item.final,
+    item.isFinalMessage,
+    item.is_final_message,
+  ];
+  const metadata =
+    item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+      ? (item.metadata as Record<string, unknown>)
+      : null;
+  if (metadata) {
+    candidates.push(
+      metadata.isFinal,
+      metadata.is_final,
+      metadata.final,
+      metadata.isFinalMessage,
+      metadata.is_final_message,
+    );
+  }
+  for (const candidate of candidates) {
+    const parsed = asBoolean(candidate);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+function parseTimestampLikeMs(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value < 1_000_000_000_000 ? value * 1000 : value;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  const numeric = Number(normalized);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+  }
+  const parsed = Date.parse(normalized);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined;
+  }
+  return parsed;
+}
+
+function extractFinalCompletedAtMs(item: Record<string, unknown>): number | undefined {
+  const metadata =
+    item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+      ? (item.metadata as Record<string, unknown>)
+      : null;
+  const candidates: unknown[] = [
+    item.finalCompletedAt,
+    item.final_completed_at,
+    item.completedAt,
+    item.completed_at,
+  ];
+  if (metadata) {
+    candidates.push(
+      metadata.finalCompletedAt,
+      metadata.final_completed_at,
+      metadata.completedAt,
+      metadata.completed_at,
+    );
+  }
+  for (const candidate of candidates) {
+    const parsed = parseTimestampLikeMs(candidate);
+    if (typeof parsed === "number") {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+function extractFinalDurationMs(item: Record<string, unknown>): number | undefined {
+  const metadata =
+    item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+      ? (item.metadata as Record<string, unknown>)
+      : null;
+  const candidates: unknown[] = [
+    item.finalDurationMs,
+    item.final_duration_ms,
+    item.durationMs,
+    item.duration_ms,
+  ];
+  if (metadata) {
+    candidates.push(
+      metadata.finalDurationMs,
+      metadata.final_duration_ms,
+      metadata.durationMs,
+      metadata.duration_ms,
+    );
+  }
+  for (const candidate of candidates) {
+    const parsed = asNumber(candidate);
+    if (parsed !== null && parsed >= 0) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+function extractHistoryItemTimestampMs(item: Record<string, unknown>): number | undefined {
+  const metadata =
+    item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+      ? (item.metadata as Record<string, unknown>)
+      : null;
+  const candidates: unknown[] = [
+    item.timestamp,
+    item.timestamp_ms,
+    item.timestampMs,
+    item.createdAt,
+    item.created_at,
+    item.updatedAt,
+    item.updated_at,
+  ];
+  if (metadata) {
+    candidates.push(
+      metadata.timestamp,
+      metadata.timestamp_ms,
+      metadata.timestampMs,
+      metadata.createdAt,
+      metadata.created_at,
+      metadata.updatedAt,
+      metadata.updated_at,
+    );
+  }
+  for (const candidate of candidates) {
+    const parsed = parseTimestampLikeMs(candidate);
+    if (typeof parsed === "number") {
+      return parsed;
+    }
+  }
+  return undefined;
 }
 
 export function buildConversationItem(
@@ -1630,6 +1834,8 @@ export function buildConversationItem(
       item,
       fallbackCollaborationMode,
     );
+    const selectedAgentName = extractSelectedAgentNameFromUserMessageItem(item, text);
+    const selectedAgentIcon = extractSelectedAgentIconFromUserMessageItem(item, text);
     return {
       id,
       kind: "message",
@@ -1637,6 +1843,8 @@ export function buildConversationItem(
       text,
       images: images.length > 0 ? images : undefined,
       collaborationMode,
+      selectedAgentName,
+      selectedAgentIcon,
     };
   }
   if (type === "reasoning") {
@@ -2005,6 +2213,200 @@ function stripModeFallbackBlock(text: string) {
   return extracted || text;
 }
 
+function extractLatestUserInputTextPreserveFormatting(text: string): string {
+  const userInputMatches = [...text.matchAll(USER_INPUT_BLOCK_MARKER_REGEX)];
+  if (userInputMatches.length === 0) {
+    return text;
+  }
+  const lastMatch = userInputMatches[userInputMatches.length - 1];
+  if (!lastMatch) {
+    return text;
+  }
+  const markerIndex = lastMatch.index ?? -1;
+  if (markerIndex < 0) {
+    return text;
+  }
+  const markerLength = lastMatch[0]?.length ?? 0;
+  const extractedRaw = text.slice(markerIndex + markerLength);
+  const extracted = extractedRaw.replace(/^\r?\n/, "").replace(/^ /, "");
+  return extracted.trim().length > 0 ? extracted : text;
+}
+
+function stripAgentPromptBlockFromTail(text: string): string {
+  const match = AGENT_PROMPT_BLOCK_AT_TAIL_REGEX.exec(text);
+  if (!match || typeof match.index !== "number" || match.index < 0) {
+    return text;
+  }
+  const baseText = text.slice(0, match.index).replace(/\s+$/, "");
+  return baseText || text;
+}
+
+function normalizeSelectedAgentName(value: unknown): string | null {
+  const text = asString(value).trim();
+  if (!text) {
+    return null;
+  }
+  const normalized = text.replace(/^#+\s*/, "").trim();
+  return normalized || null;
+}
+
+function extractAgentNameFromPromptLine(value: string | null): string | null {
+  const normalized = normalizeSelectedAgentName(value);
+  if (!normalized) {
+    return null;
+  }
+  const namedMatch = AGENT_PROMPT_NAME_LINE_REGEX.exec(normalized);
+  if (namedMatch?.[1]) {
+    return normalizeSelectedAgentName(namedMatch[1]);
+  }
+  const firstClause = normalized.split(/[,:，；;：。！？!?]/)[0]?.trim() ?? "";
+  if (firstClause && firstClause.length <= 24) {
+    return firstClause;
+  }
+  return null;
+}
+
+function extractSelectedAgentNameFromPromptText(text: string): string | null {
+  const match = AGENT_PROMPT_BLOCK_AT_TAIL_REGEX.exec(text);
+  if (!match) {
+    return null;
+  }
+  const tailText = match[1] ?? "";
+  if (!tailText.trim()) {
+    return null;
+  }
+  const firstLine =
+    tailText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? null;
+  return extractAgentNameFromPromptLine(firstLine);
+}
+
+function extractSelectedAgentIconFromPromptText(text: string): string | null {
+  const match = AGENT_PROMPT_BLOCK_AT_TAIL_REGEX.exec(text);
+  if (!match) {
+    return null;
+  }
+  const tailText = match[1] ?? "";
+  if (!tailText.trim()) {
+    return null;
+  }
+  for (const line of tailText.split(/\r?\n/)) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine) {
+      continue;
+    }
+    const iconMatch = AGENT_PROMPT_ICON_LINE_REGEX.exec(trimmedLine);
+    if (!iconMatch?.[1]) {
+      continue;
+    }
+    const normalized = normalizeAgentIcon(iconMatch[1]);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+function extractRawUserMessageTextCandidates(item: Record<string, unknown>): string[] {
+  const candidates: string[] = [];
+  const directText = asString(item.text);
+  if (directText.trim()) {
+    candidates.push(directText);
+  }
+  const content = Array.isArray(item.content) ? item.content : [];
+  for (const entry of content) {
+    const record = asRecord(entry);
+    if (!record) {
+      continue;
+    }
+    const text = asString(record.text ?? record.value ?? record.content ?? "");
+    if (text.trim()) {
+      candidates.push(text);
+    }
+  }
+  return candidates;
+}
+
+function extractSelectedAgentNameFromUserMessageItem(
+  item: Record<string, unknown>,
+  text: string,
+): string | null {
+  const metadata = asRecord(item.metadata);
+  const explicitNameCandidates: unknown[] = [
+    item.selectedAgentName,
+    item.selected_agent_name,
+    item.agentName,
+    item.agent_name,
+    asRecord(item.selectedAgent)?.name,
+    asRecord(item.selected_agent)?.name,
+    metadata?.selectedAgentName,
+    metadata?.selected_agent_name,
+    metadata?.agentName,
+    metadata?.agent_name,
+  ];
+  for (const candidate of explicitNameCandidates) {
+    const normalized = normalizeSelectedAgentName(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  const promptTextCandidates = [text, ...extractRawUserMessageTextCandidates(item)];
+  for (const candidate of promptTextCandidates) {
+    const extracted = extractSelectedAgentNameFromPromptText(candidate);
+    if (extracted) {
+      return extracted;
+    }
+  }
+  return null;
+}
+
+function extractSelectedAgentIconFromUserMessageItem(
+  item: Record<string, unknown>,
+  text: string,
+): string | null {
+  const metadata = asRecord(item.metadata);
+  const explicitIconCandidates: unknown[] = [
+    item.selectedAgentIcon,
+    item.selected_agent_icon,
+    item.agentIcon,
+    item.agent_icon,
+    asRecord(item.selectedAgent)?.icon,
+    asRecord(item.selected_agent)?.icon,
+    metadata?.selectedAgentIcon,
+    metadata?.selected_agent_icon,
+    metadata?.agentIcon,
+    metadata?.agent_icon,
+  ];
+  for (const candidate of explicitIconCandidates) {
+    const normalized = normalizeAgentIcon(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  const promptTextCandidates = [text, ...extractRawUserMessageTextCandidates(item)];
+  for (const candidate of promptTextCandidates) {
+    const extracted = extractSelectedAgentIconFromPromptText(candidate);
+    if (extracted) {
+      return extracted;
+    }
+  }
+  return null;
+}
+
+function stripInjectedPrefixLines(text: string): string {
+  let normalized = text.trimStart();
+  while (TITLE_INJECTED_LINE_PREFIX_REGEX.test(normalized)) {
+    normalized = normalized.replace(TITLE_INJECTED_LINE_PREFIX_REGEX, "").trimStart();
+  }
+  return normalized;
+}
+
+function clipByChars(text: string, maxChars: number): string {
+  return Array.from(text).slice(0, maxChars).join("");
+}
+
 function parseUserInputs(inputs: Array<Record<string, unknown>>) {
   const textParts: string[] = [];
   const images: string[] = [];
@@ -2102,6 +2504,8 @@ export function buildConversationItemFromThreadItem(
       item,
       fallbackCollaborationMode,
     );
+    const selectedAgentName = extractSelectedAgentNameFromUserMessageItem(item, text);
+    const selectedAgentIcon = extractSelectedAgentIconFromUserMessageItem(item, text);
     return {
       id,
       kind: "message",
@@ -2109,14 +2513,22 @@ export function buildConversationItemFromThreadItem(
       text,
       images: images.length > 0 ? images : undefined,
       collaborationMode,
+      selectedAgentName,
+      selectedAgentIcon,
     };
   }
   if (type === "agentMessage") {
+    const isFinal = extractAssistantFinalFlag(item);
+    const finalCompletedAt = extractFinalCompletedAtMs(item);
+    const finalDurationMs = extractFinalDurationMs(item);
     return {
       id,
       kind: "message",
       role: "assistant",
       text: asString(item.text),
+      ...(typeof isFinal === "boolean" ? { isFinal } : {}),
+      ...(typeof finalCompletedAt === "number" ? { finalCompletedAt } : {}),
+      ...(typeof finalDurationMs === "number" ? { finalDurationMs } : {}),
     };
   }
   if (type === "reasoning") {
@@ -2142,12 +2554,56 @@ export function buildItemsFromThread(thread: Record<string, unknown>) {
   const items: ConversationItem[] = [];
   turns.forEach((turn) => {
     const turnRecord = turn as Record<string, unknown>;
+    const turnCompletedAtMs =
+      parseTimestampLikeMs(
+        turnRecord.completedAt ??
+          turnRecord.completed_at ??
+          turnRecord.updatedAt ??
+          turnRecord.updated_at ??
+          turnRecord.createdAt ??
+          turnRecord.created_at ??
+          null,
+      );
+    const turnDurationMsRaw = asNumber(
+      turnRecord.durationMs ??
+        turnRecord.duration_ms ??
+        turnRecord.duration ??
+        null,
+    );
+    const turnDurationMs = turnDurationMsRaw !== null && turnDurationMsRaw >= 0
+      ? turnDurationMsRaw
+      : undefined;
     const turnItems = Array.isArray(turnRecord.items)
       ? (turnRecord.items as Record<string, unknown>[])
       : [];
+    let lastAssistantMessageIndexInTurn = -1;
+    let finalAssistantMessageIndexInTurn = -1;
+    let hasExplicitFinalAssistantInTurn = false;
+    let turnStartedAtMs: number | undefined;
+    const assistantTimestampByIndex = new Map<number, number>();
     turnItems.forEach((item) => {
-      const converted = buildConversationItemFromThreadItem(item);
+      const itemRecord = item as Record<string, unknown>;
+      const converted = buildConversationItemFromThreadItem(itemRecord);
       if (converted) {
+        const convertedIndex = items.length;
+        const itemTimestampMs = extractHistoryItemTimestampMs(itemRecord);
+        if (
+          converted.kind === "message" &&
+          converted.role === "user" &&
+          typeof itemTimestampMs === "number"
+        ) {
+          turnStartedAtMs = itemTimestampMs;
+        }
+        if (converted.kind === "message" && converted.role === "assistant") {
+          if (converted.isFinal === true) {
+            hasExplicitFinalAssistantInTurn = true;
+            finalAssistantMessageIndexInTurn = convertedIndex;
+          }
+          lastAssistantMessageIndexInTurn = convertedIndex;
+          if (typeof itemTimestampMs === "number") {
+            assistantTimestampByIndex.set(convertedIndex, itemTimestampMs);
+          }
+        }
         if (converted.kind === "reasoning") {
           const duplicateIndex = findDuplicateReasoningSnapshotIndex(items, converted);
           if (duplicateIndex >= 0 && items[duplicateIndex]?.kind === "reasoning") {
@@ -2161,6 +2617,52 @@ export function buildItemsFromThread(thread: Record<string, unknown>) {
         items.push(converted);
       }
     });
+    if (!hasExplicitFinalAssistantInTurn && lastAssistantMessageIndexInTurn >= 0) {
+      const lastAssistant = items[lastAssistantMessageIndexInTurn];
+      if (
+        lastAssistant &&
+        lastAssistant.kind === "message" &&
+        lastAssistant.role === "assistant" &&
+        lastAssistant.isFinal !== true
+      ) {
+        items[lastAssistantMessageIndexInTurn] = {
+          ...lastAssistant,
+          isFinal: true,
+        };
+        finalAssistantMessageIndexInTurn = lastAssistantMessageIndexInTurn;
+      }
+    }
+    if (finalAssistantMessageIndexInTurn >= 0) {
+      const finalAssistant = items[finalAssistantMessageIndexInTurn];
+      if (finalAssistant && finalAssistant.kind === "message" && finalAssistant.role === "assistant") {
+        const completedAtCandidates = [
+          finalAssistant.finalCompletedAt,
+          assistantTimestampByIndex.get(finalAssistantMessageIndexInTurn),
+          turnCompletedAtMs,
+        ].filter((value): value is number => typeof value === "number" && value > 0);
+        const completedAt =
+          completedAtCandidates.length > 0 ? Math.max(...completedAtCandidates) : undefined;
+        const durationCandidates = [
+          finalAssistant.finalDurationMs,
+          turnDurationMs,
+          typeof completedAt === "number" && typeof turnStartedAtMs === "number"
+            ? Math.max(0, completedAt - turnStartedAtMs)
+            : undefined,
+        ].filter((value): value is number => typeof value === "number" && value >= 0);
+        const durationMs =
+          durationCandidates.length > 0 ? Math.max(...durationCandidates) : undefined;
+        if (
+          completedAt !== finalAssistant.finalCompletedAt ||
+          durationMs !== finalAssistant.finalDurationMs
+        ) {
+          items[finalAssistantMessageIndexInTurn] = {
+            ...finalAssistant,
+            ...(typeof completedAt === "number" ? { finalCompletedAt: completedAt } : {}),
+            ...(typeof durationMs === "number" ? { finalDurationMs: durationMs } : {}),
+          };
+        }
+      }
+    }
   });
   return items;
 }
@@ -2193,28 +2695,63 @@ function chooseRicherItem(remote: ConversationItem, local: ConversationItem) {
     if (remote.role !== local.role) {
       return remote;
     }
+    const withFinalFlag = (
+      candidate: Extract<ConversationItem, { kind: "message" }>,
+    ): Extract<ConversationItem, { kind: "message" }> => {
+      if (candidate.role !== "assistant") {
+        return candidate;
+      }
+      const isFinal = Boolean(candidate.isFinal || remote.isFinal || local.isFinal);
+      const completedAtCandidates = [
+        candidate.finalCompletedAt,
+        remote.finalCompletedAt,
+        local.finalCompletedAt,
+      ].filter((value): value is number => typeof value === "number" && value > 0);
+      const mergedCompletedAt =
+        completedAtCandidates.length > 0 ? Math.max(...completedAtCandidates) : undefined;
+      const durationCandidates = [
+        candidate.finalDurationMs,
+        remote.finalDurationMs,
+        local.finalDurationMs,
+      ].filter((value): value is number => typeof value === "number" && value >= 0);
+      const mergedDurationMs =
+        durationCandidates.length > 0 ? Math.max(...durationCandidates) : undefined;
+      if (
+        (candidate.isFinal ?? false) === isFinal &&
+        candidate.finalCompletedAt === mergedCompletedAt &&
+        candidate.finalDurationMs === mergedDurationMs
+      ) {
+        return candidate;
+      }
+      return {
+        ...candidate,
+        isFinal,
+        ...(mergedCompletedAt !== undefined ? { finalCompletedAt: mergedCompletedAt } : {}),
+        ...(mergedDurationMs !== undefined ? { finalDurationMs: mergedDurationMs } : {}),
+      };
+    };
     if (remote.role !== "assistant") {
       return local.text.length > remote.text.length ? local : remote;
     }
     const remoteScored = scoreAssistantMessageReadability(remote.text);
     const localScored = scoreAssistantMessageReadability(local.text);
     if (localScored.score < remoteScored.score) {
-      return { ...local, text: localScored.normalized };
+      return withFinalFlag({ ...local, text: localScored.normalized });
     }
     if (remoteScored.score < localScored.score) {
-      return { ...remote, text: remoteScored.normalized };
+      return withFinalFlag({ ...remote, text: remoteScored.normalized });
     }
     if (
       compactMessageText(remoteScored.normalized) ===
       compactMessageText(localScored.normalized)
     ) {
       return localScored.normalized.length >= remoteScored.normalized.length
-        ? { ...local, text: localScored.normalized }
-        : { ...remote, text: remoteScored.normalized };
+        ? withFinalFlag({ ...local, text: localScored.normalized })
+        : withFinalFlag({ ...remote, text: remoteScored.normalized });
     }
     return localScored.normalized.length > remoteScored.normalized.length
-      ? { ...local, text: localScored.normalized }
-      : { ...remote, text: remoteScored.normalized };
+      ? withFinalFlag({ ...local, text: localScored.normalized })
+      : withFinalFlag({ ...remote, text: remoteScored.normalized });
   }
   if (remote.kind === "reasoning" && local.kind === "reasoning") {
     const remoteLength = remote.summary.length + remote.content.length;

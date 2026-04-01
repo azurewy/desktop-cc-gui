@@ -15,6 +15,7 @@ import type {
   EngineStatus,
   EngineType,
   EngineModelInfo,
+  CustomPromptOption,
 } from "../types";
 import type {
   GitFileDiff,
@@ -34,6 +35,11 @@ import type {
   GitPushPreviewResponse,
   ReviewTarget,
 } from "../types";
+import type {
+  ClaudeCurrentConfig as VendorClaudeCurrentConfig,
+  CodexProviderConfig as VendorCodexProviderConfig,
+  ProviderConfig as VendorProviderConfig,
+} from "../features/vendors/types";
 
 function isMissingTauriInvokeError(error: unknown) {
   return (
@@ -166,6 +172,40 @@ export async function getCodexConfigPath(): Promise<string> {
   return invoke<string>("get_codex_config_path");
 }
 
+export interface CodexRuntimeReloadResult {
+  status: string;
+  stage: string;
+  restartedSessions: number;
+  message?: string | null;
+}
+
+export async function reloadCodexRuntimeConfig(): Promise<CodexRuntimeReloadResult> {
+  return invoke<CodexRuntimeReloadResult>("reload_codex_runtime_config");
+}
+
+type RpcObject = Record<string, unknown>;
+
+export interface ThreadListResultPayload extends RpcObject {
+  data?: unknown[];
+  nextCursor?: string | null;
+  next_cursor?: string | null;
+  partialSource?: string;
+  partial_source?: string;
+}
+
+export interface ThreadListPayload extends RpcObject {
+  result?: ThreadListResultPayload;
+  data?: unknown[];
+  nextCursor?: string | null;
+  next_cursor?: string | null;
+}
+
+export interface ClaudeSessionSummaryPayload {
+  sessionId: string;
+  firstMessage: string;
+  updatedAt: number;
+}
+
 export type TextFileResponse = {
   exists: boolean;
   content: string;
@@ -174,10 +214,11 @@ export type TextFileResponse = {
 
 export type GlobalAgentsResponse = TextFileResponse;
 export type GlobalCodexConfigResponse = TextFileResponse;
+export type GlobalCodexAuthResponse = TextFileResponse;
 export type AgentMdResponse = TextFileResponse;
 
 type FileScope = "workspace" | "global";
-type FileKind = "agents" | "claude" | "config";
+type FileKind = "agents" | "claude" | "config" | "auth";
 
 async function fileRead(
   scope: FileScope,
@@ -210,6 +251,10 @@ export async function readGlobalCodexConfigToml(): Promise<GlobalCodexConfigResp
 
 export async function writeGlobalCodexConfigToml(content: string): Promise<void> {
   return fileWrite("global", "config", content);
+}
+
+export async function readGlobalCodexAuthJson(): Promise<GlobalCodexAuthResponse> {
+  return fileRead("global", "auth");
 }
 
 export async function getConfigModel(workspaceId: string): Promise<string | null> {
@@ -362,11 +407,14 @@ export async function connectWorkspace(id: string): Promise<void> {
 }
 
 export async function startThread(workspaceId: string) {
-  return invoke<any>("start_thread", { workspaceId });
+  return invoke<Record<string, unknown> | null | undefined>("start_thread", { workspaceId });
 }
 
 export async function forkThread(workspaceId: string, threadId: string) {
-  return invoke<any>("fork_thread", { workspaceId, threadId });
+  return invoke<Record<string, unknown> | null | undefined>("fork_thread", {
+    workspaceId,
+    threadId,
+  });
 }
 
 export async function sendUserMessage(
@@ -795,7 +843,11 @@ export async function localUsageStatistics(input: {
 }
 
 export async function getModelList(workspaceId: string) {
-  return invoke<any>("model_list", { workspaceId });
+  return invoke<{
+    data?: Record<string, unknown>[];
+    result?: { data?: Record<string, unknown>[]; [key: string]: unknown };
+    [key: string]: unknown;
+  }>("model_list", { workspaceId });
 }
 
 export async function generateRunMetadata(workspaceId: string, prompt: string) {
@@ -806,15 +858,34 @@ export async function generateRunMetadata(workspaceId: string, prompt: string) {
 }
 
 export async function getCollaborationModes(workspaceId: string) {
-  return invoke<any>("collaboration_mode_list", { workspaceId });
+  return invoke<{
+    data?: Record<string, unknown>[];
+    result?: { data?: Record<string, unknown>[]; [key: string]: unknown };
+    [key: string]: unknown;
+  }>(
+    "collaboration_mode_list",
+    { workspaceId },
+  );
 }
 
 export async function getAccountRateLimits(workspaceId: string) {
-  return invoke<any>("account_rate_limits", { workspaceId });
+  return invoke<{
+    rateLimits?: unknown;
+    rate_limits?: unknown;
+    result?: {
+      rateLimits?: unknown;
+      rate_limits?: unknown;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  }>(
+    "account_rate_limits",
+    { workspaceId },
+  );
 }
 
 export async function getAccountInfo(workspaceId: string) {
-  return invoke<any>("account_read", { workspaceId });
+  return invoke<Record<string, unknown> | null>("account_read", { workspaceId });
 }
 
 export async function runCodexLogin(workspaceId: string) {
@@ -826,21 +897,21 @@ export async function cancelCodexLogin(workspaceId: string) {
 }
 
 export async function getSkillsList(workspaceId: string) {
-  return invoke<any>("skills_list", { workspaceId });
+  return invoke<unknown>("skills_list", { workspaceId });
 }
 
 export async function getClaudeCommandsList(workspaceId?: string | null) {
-  return invoke<any>("claude_commands_list", {
+  return invoke<unknown>("claude_commands_list", {
     workspaceId: workspaceId ?? null,
   });
 }
 
 export async function getOpenCodeCommandsList(refresh = false) {
-  return invoke<any>("opencode_commands_list", { refresh });
+  return invoke<unknown>("opencode_commands_list", { refresh });
 }
 
 export async function getOpenCodeAgentsList(refresh = false) {
-  return invoke<any>("opencode_agents_list", { refresh });
+  return invoke<unknown>("opencode_agents_list", { refresh });
 }
 
 export async function getOpenCodeSessionList(workspaceId: string) {
@@ -1132,8 +1203,8 @@ export async function getOpenCodeLspReferences(
   });
 }
 
-export async function getPromptsList(workspaceId: string) {
-  return invoke<any>("prompts_list", { workspaceId });
+export async function getPromptsList(workspaceId: string): Promise<CustomPromptOption[]> {
+  return invoke<CustomPromptOption[]>("prompts_list", { workspaceId });
 }
 
 export async function getWorkspacePromptsDir(workspaceId: string) {
@@ -1153,8 +1224,8 @@ export async function createPrompt(
     argumentHint?: string | null;
     content: string;
   },
-) {
-  return invoke<any>("prompts_create", {
+): Promise<CustomPromptOption> {
+  return invoke<CustomPromptOption>("prompts_create", {
     workspaceId,
     scope: data.scope,
     name: data.name,
@@ -1173,8 +1244,8 @@ export async function updatePrompt(
     argumentHint?: string | null;
     content: string;
   },
-) {
-  return invoke<any>("prompts_update", {
+): Promise<CustomPromptOption> {
+  return invoke<CustomPromptOption>("prompts_update", {
     workspaceId,
     path: data.path,
     name: data.name,
@@ -1184,15 +1255,15 @@ export async function updatePrompt(
   });
 }
 
-export async function deletePrompt(workspaceId: string, path: string) {
-  return invoke<any>("prompts_delete", { workspaceId, path });
+export async function deletePrompt(workspaceId: string, path: string): Promise<void> {
+  return invoke<void>("prompts_delete", { workspaceId, path });
 }
 
 export async function movePrompt(
   workspaceId: string,
   data: { path: string; scope: "workspace" | "global" },
-) {
-  return invoke<any>("prompts_move", {
+): Promise<CustomPromptOption> {
+  return invoke<CustomPromptOption>("prompts_move", {
     workspaceId,
     path: data.path,
     scope: data.scope,
@@ -1810,7 +1881,11 @@ export async function listThreads(
   cursor?: string | null,
   limit?: number | null,
 ) {
-  return invoke<any>("list_threads", { workspaceId, cursor, limit });
+  return invoke<ThreadListPayload | null | undefined>("list_threads", {
+    workspaceId,
+    cursor,
+    limit,
+  });
 }
 
 export async function listMcpServerStatus(
@@ -1818,7 +1893,7 @@ export async function listMcpServerStatus(
   cursor?: string | null,
   limit?: number | null,
 ) {
-  return invoke<any>("list_mcp_server_status", { workspaceId, cursor, limit });
+  return invoke<unknown>("list_mcp_server_status", { workspaceId, cursor, limit });
 }
 
 export type GlobalMcpServerEntry = {
@@ -1836,11 +1911,17 @@ export async function listGlobalMcpServers() {
 }
 
 export async function resumeThread(workspaceId: string, threadId: string) {
-  return invoke<any>("resume_thread", { workspaceId, threadId });
+  return invoke<Record<string, unknown> | null>("resume_thread", {
+    workspaceId,
+    threadId,
+  });
 }
 
 export async function archiveThread(workspaceId: string, threadId: string) {
-  return invoke<any>("archive_thread", { workspaceId, threadId });
+  return invoke<Record<string, unknown> | null>("archive_thread", {
+    workspaceId,
+    threadId,
+  });
 }
 
 export async function deleteOpenCodeSession(
@@ -2142,11 +2223,14 @@ export async function engineInterrupt(workspaceId: string): Promise<void> {
 export async function listClaudeSessions(
   workspacePath: string,
   limit?: number | null,
-): Promise<any> {
-  return invoke<any>("list_claude_sessions", {
-    workspacePath,
-    limit: limit ?? null,
-  });
+): Promise<ClaudeSessionSummaryPayload[] | Record<string, unknown> | null | undefined> {
+  return invoke<ClaudeSessionSummaryPayload[] | Record<string, unknown> | null | undefined>(
+    "list_claude_sessions",
+    {
+      workspacePath,
+      limit: limit ?? null,
+    },
+  );
 }
 
 /**
@@ -2155,8 +2239,8 @@ export async function listClaudeSessions(
 export async function loadClaudeSession(
   workspacePath: string,
   sessionId: string,
-): Promise<any> {
-  return invoke<any>("load_claude_session", {
+): Promise<Record<string, unknown> | null> {
+  return invoke<Record<string, unknown> | null>("load_claude_session", {
     workspacePath,
     sessionId,
   });
@@ -2168,8 +2252,8 @@ export async function loadClaudeSession(
 export async function listGeminiSessions(
   workspacePath: string,
   limit?: number | null,
-): Promise<any> {
-  return invoke<any>("list_gemini_sessions", {
+): Promise<Record<string, unknown> | unknown[] | null> {
+  return invoke<Record<string, unknown> | unknown[] | null>("list_gemini_sessions", {
     workspacePath,
     limit: limit ?? null,
   });
@@ -2181,8 +2265,8 @@ export async function listGeminiSessions(
 export async function loadGeminiSession(
   workspacePath: string,
   sessionId: string,
-): Promise<any> {
-  return invoke<any>("load_gemini_session", {
+): Promise<Record<string, unknown> | null> {
+  return invoke<Record<string, unknown> | null>("load_gemini_session", {
     workspacePath,
     sessionId,
   });
@@ -2194,8 +2278,8 @@ export async function loadGeminiSession(
 export async function loadCodexSession(
   workspaceId: string,
   sessionId: string,
-): Promise<any> {
-  return invoke<any>("load_codex_session", {
+): Promise<Record<string, unknown> | null> {
+  return invoke<Record<string, unknown> | null>("load_codex_session", {
     workspaceId,
     sessionId,
   });
@@ -2207,8 +2291,8 @@ export async function loadCodexSession(
 export async function forkClaudeSession(
   workspacePath: string,
   sessionId: string,
-): Promise<any> {
-  return invoke<any>("fork_claude_session", {
+): Promise<Record<string, unknown> | null> {
+  return invoke<Record<string, unknown> | null>("fork_claude_session", {
     workspacePath,
     sessionId,
   });
@@ -2426,17 +2510,17 @@ export async function projectMemoryCaptureAuto(input: {
 
 // ==================== Vendor/Provider API ====================
 
-export async function getClaudeProviders(): Promise<any[]> {
-  return invoke<any[]>("vendor_get_claude_providers");
+export async function getClaudeProviders(): Promise<VendorProviderConfig[]> {
+  return invoke<VendorProviderConfig[]>("vendor_get_claude_providers");
 }
 
-export async function addClaudeProvider(provider: any): Promise<void> {
+export async function addClaudeProvider(provider: unknown): Promise<void> {
   return invoke("vendor_add_claude_provider", { provider });
 }
 
 export async function updateClaudeProvider(
   id: string,
-  updates: any,
+  updates: unknown,
 ): Promise<void> {
   return invoke("vendor_update_claude_provider", { id, updates });
 }
@@ -2449,8 +2533,8 @@ export async function switchClaudeProvider(id: string): Promise<void> {
   return invoke("vendor_switch_claude_provider", { id });
 }
 
-export async function getCurrentClaudeConfig(): Promise<any> {
-  return invoke<any>("vendor_get_current_claude_config");
+export async function getCurrentClaudeConfig(): Promise<VendorClaudeCurrentConfig> {
+  return invoke<VendorClaudeCurrentConfig>("vendor_get_current_claude_config");
 }
 
 export async function getClaudeAlwaysThinkingEnabled(): Promise<boolean> {
@@ -2463,17 +2547,17 @@ export async function setClaudeAlwaysThinkingEnabled(
   return invoke("vendor_set_claude_always_thinking_enabled", { enabled });
 }
 
-export async function getCodexProviders(): Promise<any[]> {
-  return invoke<any[]>("vendor_get_codex_providers");
+export async function getCodexProviders(): Promise<VendorCodexProviderConfig[]> {
+  return invoke<VendorCodexProviderConfig[]>("vendor_get_codex_providers");
 }
 
-export async function addCodexProvider(provider: any): Promise<void> {
+export async function addCodexProvider(provider: unknown): Promise<void> {
   return invoke("vendor_add_codex_provider", { provider });
 }
 
 export async function updateCodexProvider(
   id: string,
-  updates: any,
+  updates: unknown,
 ): Promise<void> {
   return invoke("vendor_update_codex_provider", { id, updates });
 }
@@ -2529,7 +2613,7 @@ export async function addAgentConfig(agent: AgentConfig): Promise<void> {
 
 export async function updateAgentConfig(
   id: string,
-  updates: Partial<Pick<AgentConfig, "name" | "prompt">>,
+  updates: Partial<Pick<AgentConfig, "name" | "prompt" | "icon">>,
 ): Promise<void> {
   return invoke("agent_update", { id, updates });
 }

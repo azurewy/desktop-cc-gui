@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type {
   AccessMode,
+  ConversationItem,
   MemoryContextInjectionMode,
   RateLimitSnapshot,
   ThreadTokenUsage,
@@ -54,11 +55,19 @@ import type { ThreadAction, ThreadState } from "./useThreadsReducer";
 import { useReviewPrompt } from "./useReviewPrompt";
 import { formatRelativeTime } from "../../../utils/time";
 import { pushErrorToast } from "../../../services/toasts";
+import { resolveAgentIconForAgent } from "../../../utils/agentIcons";
 import { normalizeSpecRootInput } from "../../spec/pathUtils";
 import { isValidModelId } from "../../composer/types/provider";
+import {
+  clearPendingClaudeMcpOutputNotice,
+  getClaudeMcpRuntimeSnapshot,
+  setPendingClaudeMcpOutputNotice,
+  rewriteClaudePlaywrightAlias,
+} from "../utils/claudeMcpRuntimeSnapshot";
 
 type SendMessageOptions = {
   skipPromptExpansion?: boolean;
+  skipOptimisticUserBubble?: boolean;
   model?: string | null;
   effort?: string | null;
   collaborationMode?: Record<string, unknown> | null;
@@ -69,12 +78,16 @@ type SendMessageOptions = {
     id: string;
     name: string;
     prompt?: string | null;
+    icon?: string | null;
   } | null;
+  codexInvalidThreadRetryAttempted?: boolean;
 };
 
 const SPEC_ROOT_PRIORITY_MARKER = "[Spec Root Priority]";
 const SPEC_ROOT_SESSION_MARKER = "[Session Spec Link]";
 const AGENT_PROMPT_HEADER = "## Agent Role and Instructions";
+const AGENT_PROMPT_NAME_PREFIX = "Agent Name:";
+const AGENT_PROMPT_ICON_PREFIX = "Agent Icon:";
 
 type SessionSpecLinkSource = "custom" | "default";
 type SessionSpecProbeStatus = "visible" | "invalid" | "permissionDenied" | "malformed";
@@ -694,11 +707,65 @@ export function useThreadMessaging({
       finalText = injectionResult.finalText;
       const resolvedSelectedAgent =
         resolvedEngine !== "opencode" ? options?.selectedAgent ?? null : null;
+      const selectedAgentName =
+        resolvedEngine !== "opencode"
+          ? resolvedSelectedAgent?.name?.trim() || null
+          : null;
+      const selectedAgentIcon =
+        resolvedEngine !== "opencode" && resolvedSelectedAgent
+          ? resolveAgentIconForAgent(resolvedSelectedAgent, "codicon-hubot")
+          : null;
       const selectedAgentPrompt = resolvedSelectedAgent?.prompt?.trim() || "";
+      const selectedAgentPromptSections: string[] = [];
+      if (selectedAgentName) {
+        selectedAgentPromptSections.push(`${AGENT_PROMPT_NAME_PREFIX} ${selectedAgentName}`);
+      }
+      if (selectedAgentIcon) {
+        selectedAgentPromptSections.push(`${AGENT_PROMPT_ICON_PREFIX} ${selectedAgentIcon}`);
+      }
       if (selectedAgentPrompt) {
+        selectedAgentPromptSections.push(selectedAgentPrompt);
+      }
+      const selectedAgentPromptBlock = selectedAgentPromptSections.join("\n\n").trim();
+      if (selectedAgentPromptBlock) {
         if (!finalText.includes(AGENT_PROMPT_HEADER)) {
-          finalText = `${finalText}\n\n${AGENT_PROMPT_HEADER}\n\n${selectedAgentPrompt}`;
+          finalText = `${finalText}\n\n${AGENT_PROMPT_HEADER}\n\n${selectedAgentPromptBlock}`;
         }
+      }
+      let claudeMcpDiagnostics: string[] = [];
+      let claudeMcpOutputNotice: string | null = null;
+      const claudeMcpSnapshot =
+        resolvedEngine === "claude"
+          ? getClaudeMcpRuntimeSnapshot(workspace.id)
+          : null;
+      if (resolvedEngine === "claude") {
+        const rewriteResult = rewriteClaudePlaywrightAlias(workspace.id, finalText);
+        finalText = rewriteResult.text;
+        claudeMcpDiagnostics = rewriteResult.diagnostics;
+        if (rewriteResult.aliasMentioned) {
+          onDebug?.({
+            id: `${Date.now()}-claude-mcp-routing`,
+            timestamp: Date.now(),
+            source: "client",
+            label: "claude/mcp-routing",
+            payload: {
+              workspaceId: workspace.id,
+              threadId,
+              applied: rewriteResult.applied,
+              fromServer: rewriteResult.fromServer,
+              toServer: rewriteResult.toServer,
+              diagnostics: rewriteResult.diagnostics,
+            },
+          });
+          claudeMcpOutputNotice = rewriteResult.applied
+            ? "MCP 路由提示：检测到 `playwright-mcp`，当前会话已自动映射为 `chrome-devtools`。"
+            : `MCP 路由提示：检测到 \`playwright-mcp\`，但当前会话未确认可见该工具。`;
+        }
+      }
+      if (resolvedEngine === "claude") {
+        setPendingClaudeMcpOutputNotice(workspace.id, threadId, claudeMcpOutputNotice);
+      } else {
+        clearPendingClaudeMcpOutputNotice(workspace.id, threadId);
       }
       if (injectionResult.injectedCount > 0 && injectionResult.previewText) {
         dispatch({
@@ -890,24 +957,29 @@ export function useThreadMessaging({
       const wasProcessing =
         (threadStatusById[threadId]?.isProcessing ?? false) && steerEnabled;
       const shouldAddOptimisticUserBubble =
-        resolvedEngine === "codex" || wasProcessing;
+        !options?.skipOptimisticUserBubble &&
+        (resolvedEngine === "codex" || wasProcessing);
+      let optimisticUserItem: Extract<ConversationItem, { kind: "message" }> | null = null;
       if (shouldAddOptimisticUserBubble) {
         const optimisticText = visibleUserText;
         if (optimisticText || images.length > 0) {
+          optimisticUserItem = {
+            id: `optimistic-user-${Date.now()}-${Math.random()
+              .toString(36)
+              .slice(2, 8)}`,
+            kind: "message",
+            role: "user",
+            text: optimisticText,
+            images: images.length > 0 ? images : undefined,
+            collaborationMode: userCollaborationMode,
+            selectedAgentName,
+            selectedAgentIcon,
+          };
           dispatch({
             type: "upsertItem",
             workspaceId: workspace.id,
             threadId,
-            item: {
-              id: `optimistic-user-${Date.now()}-${Math.random()
-                .toString(36)
-                .slice(2, 8)}`,
-              kind: "message",
-              role: "user",
-              text: optimisticText,
-              images: images.length > 0 ? images : undefined,
-              collaborationMode: userCollaborationMode,
-            },
+            item: optimisticUserItem,
             hasCustomName: Boolean(getCustomName(workspace.id, threadId)),
           });
         }
@@ -943,6 +1015,15 @@ export function useThreadMessaging({
           accessMode: resolvedAccessMode ?? null,
           agent: resolvedOpenCodeAgent,
           variant: resolvedOpenCodeVariant,
+          claudeMcpSnapshot:
+            resolvedEngine === "claude"
+              ? {
+                  capturedAt: claudeMcpSnapshot?.capturedAt ?? null,
+                  sessionId: claudeMcpSnapshot?.sessionId ?? null,
+                  toolsCount: claudeMcpSnapshot?.tools.length ?? 0,
+                  servers: claudeMcpSnapshot?.mcpServers ?? [],
+                }
+              : null,
         },
       });
       if (import.meta.env.DEV) {
@@ -1080,6 +1161,8 @@ export function useThreadMessaging({
               text: visibleUserText,
               images: images.length > 0 ? images : undefined,
               collaborationMode: userCollaborationMode,
+              selectedAgentName,
+              selectedAgentIcon,
             },
             hasCustomName: Boolean(getCustomName(workspace.id, threadId)),
           });
@@ -1110,13 +1193,19 @@ export function useThreadMessaging({
           const rpcError = extractRpcErrorMessage(response);
           if (rpcError) {
             const normalized = mapNetworkErrorToUserMessage(rpcError, t);
+            const claudeMcpHint =
+              resolvedEngine === "claude" &&
+              !normalized.isNetwork &&
+              claudeMcpDiagnostics.length > 0
+                ? `\n\n${claudeMcpDiagnostics.join("\n")}`
+                : "";
             markProcessing(threadId, false);
             setActiveTurnId(threadId, null);
             pushThreadErrorMessage(
               threadId,
               normalized.isNetwork
                 ? normalized.message
-                : t("threads.turnFailedWithMessage", { message: normalized.message }),
+                : `${t("threads.turnFailedWithMessage", { message: normalized.message })}${claudeMcpHint}`,
             );
             if (normalized.isNetwork) {
               pushErrorToast({
@@ -1199,6 +1288,64 @@ export function useThreadMessaging({
         });
         const rpcError = extractRpcErrorMessage(response);
         if (rpcError) {
+          if (
+            resolvedEngine === "codex" &&
+            !options?.codexInvalidThreadRetryAttempted &&
+            isInvalidReviewThreadIdError(rpcError)
+          ) {
+            const reboundThreadId = await refreshThread(workspace.id, threadId);
+            if (reboundThreadId) {
+              onDebug?.({
+                id: `${Date.now()}-client-turn-start-thread-retry`,
+                timestamp: Date.now(),
+                source: "client",
+                label: "turn/start thread rebind retry",
+                payload: {
+                  workspaceId: workspace.id,
+                  originalThreadId: threadId,
+                  reboundThreadId,
+                  reboundChanged: reboundThreadId !== threadId,
+                  reason: rpcError,
+                },
+              });
+              if (reboundThreadId !== threadId) {
+                dispatch({
+                  type: "setActiveThreadId",
+                  workspaceId: workspace.id,
+                  threadId: reboundThreadId,
+                });
+                if (optimisticUserItem) {
+                  dispatch({
+                    type: "setThreadItems",
+                    threadId,
+                    items: (itemsByThread[threadId] ?? []).filter(
+                      (item) => item.id !== optimisticUserItem?.id,
+                    ),
+                  });
+                  dispatch({
+                    type: "upsertItem",
+                    workspaceId: workspace.id,
+                    threadId: reboundThreadId,
+                    item: optimisticUserItem,
+                    hasCustomName: Boolean(getCustomName(workspace.id, reboundThreadId)),
+                  });
+                }
+              }
+              markProcessing(threadId, false);
+              setActiveTurnId(threadId, null);
+              safeMessageActivity();
+              await sendMessageToThread(workspace, reboundThreadId, finalText, images, {
+                skipPromptExpansion: true,
+                skipOptimisticUserBubble: true,
+                model: modelForSend,
+                effort: resolvedEffort,
+                collaborationMode: sanitizedCollaborationMode,
+                accessMode: resolvedAccessMode,
+                codexInvalidThreadRetryAttempted: true,
+              });
+              return;
+            }
+          }
           const firstPacketTimeoutSeconds =
             resolveRecoverableCodexFirstPacketTimeout(resolvedEngine, rpcError);
           if (firstPacketTimeoutSeconds) {
@@ -1355,6 +1502,7 @@ export function useThreadMessaging({
       resolveThreadEngine,
       resolveOpenCodeAgent,
       resolveOpenCodeVariant,
+      refreshThread,
       safeMessageActivity,
       setActiveTurnId,
       i18n,

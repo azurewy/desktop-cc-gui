@@ -693,7 +693,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
         activeWorkspacePath,
       );
       onGitDiffListViewChange("tree");
-      onSelectDiff(resolvedPath);
+      onSelectDiff(resolvedPath ?? null);
     },
     [gitDiffItems, activeWorkspacePath, onGitDiffListViewChange, onSelectDiff],
   );
@@ -1050,6 +1050,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
             id: options.selectedAgent.id,
             name: options.selectedAgent.name,
             prompt: options.selectedAgent.prompt ?? undefined,
+            icon: options.selectedAgent.icon ?? undefined,
           }
         : null,
     [options.selectedAgent],

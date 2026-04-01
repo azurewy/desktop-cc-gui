@@ -81,8 +81,13 @@ export type ConversationItem =
       kind: "message";
       role: "user" | "assistant";
       text: string;
+      isFinal?: boolean;
+      finalCompletedAt?: number;
+      finalDurationMs?: number;
       images?: string[];
       collaborationMode?: "plan" | "code" | null;
+      selectedAgentName?: string | null;
+      selectedAgentIcon?: string | null;
     }
   | { id: string; kind: "reasoning"; summary: string; content: string }
   | { id: string; kind: "diff"; title: string; diff: string; status?: string }
@@ -113,6 +118,9 @@ export type ThreadSummary = {
   name: string;
   updatedAt: number;
   engineSource?: "codex" | "claude" | "gemini" | "opencode";
+  source?: string;
+  provider?: string;
+  sourceLabel?: string;
 };
 
 export type ReviewTarget =
@@ -744,12 +752,14 @@ export type SelectedAgentOption = {
   id: string;
   name: string;
   prompt?: string | null;
+  icon?: string | null;
 };
 
 export type AgentConfig = {
   id: string;
   name: string;
   prompt?: string | null;
+  icon?: string | null;
   createdAt?: number | null;
 };
 

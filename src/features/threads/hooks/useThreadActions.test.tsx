@@ -84,6 +84,10 @@ describe("useThreadActions", () => {
     vi.mocked(renameThreadTitleKey).mockResolvedValue(undefined);
     vi.mocked(setThreadTitle).mockResolvedValue("title");
     vi.mocked(connectWorkspace).mockResolvedValue(undefined);
+    vi.mocked(previewThreadName).mockImplementation((text: string, fallback: string) => {
+      const trimmed = text.trim();
+      return trimmed || fallback;
+    });
     vi.mocked(deleteClaudeSession).mockResolvedValue(undefined);
     vi.mocked(deleteGeminiSession).mockResolvedValue(undefined);
     vi.mocked(deleteOpenCodeSession).mockResolvedValue({
@@ -622,7 +626,7 @@ describe("useThreadActions", () => {
         text: "请先选择一个选项。",
       },
     ]);
-    vi.mocked(loadCodexSession).mockResolvedValue(undefined);
+    vi.mocked(loadCodexSession).mockResolvedValue(null);
     vi.mocked(mergeThreadItems).mockImplementation(
       (baseItems) => baseItems as ConversationItem[],
     );
@@ -695,7 +699,7 @@ describe("useThreadActions", () => {
         },
       },
     });
-    vi.mocked(loadCodexSession).mockResolvedValue(undefined);
+    vi.mocked(loadCodexSession).mockResolvedValue(null);
     vi.mocked(buildItemsFromThread).mockReturnValue([
       {
         id: "collab-1",
@@ -746,7 +750,7 @@ describe("useThreadActions", () => {
         return null;
       },
     );
-    vi.mocked(loadCodexSession).mockResolvedValue(undefined);
+    vi.mocked(loadCodexSession).mockResolvedValue(null);
     vi.mocked(buildItemsFromThread).mockImplementation((thread) => {
       const firstItemType = (thread as { turns?: Array<{ items?: Array<{ type?: string }> }> })
         .turns?.[0]?.items?.[0]?.type;
@@ -1060,12 +1064,18 @@ describe("useThreadActions", () => {
           name: "Visible thread",
           updatedAt: 6200,
           engineSource: "codex",
+          source: "cli",
+          provider: undefined,
+          sourceLabel: "cli",
         },
         {
           id: "thread-vscode",
           name: "Should keep vscode",
           updatedAt: 6000,
           engineSource: "codex",
+          source: "vscode",
+          provider: undefined,
+          sourceLabel: "vscode",
         },
       ],
     });

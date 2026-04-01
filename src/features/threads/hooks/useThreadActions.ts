@@ -87,6 +87,7 @@ const THREAD_LIST_MAX_EMPTY_PAGES_WITH_ACTIVITY = 20;
 const THREAD_LIST_MAX_TOTAL_PAGES = 40;
 const THREAD_LIST_MAX_EMPTY_PAGES_LOAD_OLDER = 10;
 const THREAD_LIST_MAX_FETCH_DURATION_MS = 1_500;
+const RELATED_THREAD_LOAD_CONCURRENCY = 2;
 const DEFAULT_CLAUDE_CONTEXT_WINDOW = 200_000;
 const GEMINI_SESSION_CACHE_TTL_MS = 60_000;
 const GEMINI_SESSION_FETCH_TIMEOUT_MS = 800;
@@ -154,8 +155,7 @@ function mergeGeminiSessionSummaries(
       name:
         mappedTitles[id] ||
         getCustomName(workspaceId, id) ||
-        session.firstMessage ||
-        "Gemini Session",
+        previewThreadName(session.firstMessage, "Gemini Session"),
       updatedAt,
       engineSource: "gemini",
     };
@@ -180,6 +180,37 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
       clearTimeout(timer);
     }
   }
+}
+
+async function mapWithConcurrency<T>(
+  items: string[],
+  concurrency: number,
+  worker: (item: string) => Promise<T>,
+): Promise<T[]> {
+  if (items.length === 0) {
+    return [];
+  }
+  const normalizedConcurrency = Math.max(1, Math.floor(concurrency));
+  const results: T[] = [];
+  let cursor = 0;
+  const runWorker = async () => {
+    while (cursor < items.length) {
+      const currentIndex = cursor;
+      cursor += 1;
+      const item = items[currentIndex];
+      if (!item) {
+        continue;
+      }
+      const result = await worker(item);
+      results.push(result);
+    }
+  };
+  const workers = Array.from(
+    { length: Math.min(normalizedConcurrency, items.length) },
+    () => runWorker(),
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 function normalizeComparableWorkspacePath(path: string): string {
@@ -212,7 +243,7 @@ function buildWorkspacePathVariants(path: string): Set<string> {
     variants.add(`/private${normalized}`);
   }
   if (/^[A-Za-z]:/.test(normalized)) {
-    variants.add(`${normalized[0].toLowerCase()}${normalized.slice(1)}`);
+    variants.add(`${normalized.charAt(0).toLowerCase()}${normalized.slice(1)}`);
     variants.add(normalized.toLowerCase());
   }
   if (normalized.startsWith("//")) {
@@ -263,6 +294,35 @@ function isArchivedThread(thread: Record<string, unknown>): boolean {
     return true;
   }
   return asNumber(thread.archivedAt ?? thread.archived_at) > 0;
+}
+
+function normalizeThreadMetaValue(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function resolveThreadSourceMeta(thread: Record<string, unknown>): Pick<
+  ThreadSummary,
+  "source" | "provider" | "sourceLabel"
+> {
+  const source =
+    normalizeThreadMetaValue(thread.source) ??
+    normalizeThreadMetaValue(thread.sessionSource);
+  const provider =
+    normalizeThreadMetaValue(thread.provider) ??
+    normalizeThreadMetaValue(thread.providerId) ??
+    normalizeThreadMetaValue(thread.sessionProvider);
+  const sourceLabel =
+    normalizeThreadMetaValue(thread.sourceLabel) ??
+    (source && provider ? `${source}/${provider}` : source ?? provider);
+  return {
+    source,
+    provider,
+    sourceLabel,
+  };
 }
 
 function shouldIncludeThreadEntry(thread: Record<string, unknown>): boolean {
@@ -431,25 +491,45 @@ export function useThreadActions({
   const latestThreadsByWorkspaceRef = useRef(threadsByWorkspace);
   latestThreadsByWorkspaceRef.current = threadsByWorkspace;
 
-  const extractThreadId = useCallback((response: Record<string, any>) => {
-    const candidates = [
-      response.result?.thread?.id,
-      response.result?.threadId,
-      response.result?.thread_id,
-      response.thread?.id,
-      response.threadId,
-      response.thread_id,
-    ];
-    for (const candidate of candidates) {
-      if (typeof candidate === "string" || typeof candidate === "number") {
-        const normalized = String(candidate).trim();
-        if (normalized) {
-          return normalized;
+  const extractThreadId = useCallback(
+    (response: Record<string, unknown> | null | undefined) => {
+      if (!response || typeof response !== "object") {
+        return "";
+      }
+      const responseRecord = response as Record<string, unknown>;
+      const result =
+        responseRecord.result && typeof responseRecord.result === "object"
+          ? (responseRecord.result as Record<string, unknown>)
+          : null;
+      const resultThread =
+        result?.thread && typeof result.thread === "object"
+          ? (result.thread as Record<string, unknown>)
+          : null;
+      const rootThread =
+        responseRecord.thread && typeof responseRecord.thread === "object"
+          ? (responseRecord.thread as Record<string, unknown>)
+          : null;
+
+      const candidates = [
+        resultThread?.id,
+        result?.threadId,
+        result?.thread_id,
+        rootThread?.id,
+        responseRecord.threadId,
+        responseRecord.thread_id,
+      ];
+      for (const candidate of candidates) {
+        if (typeof candidate === "string" || typeof candidate === "number") {
+          const normalized = String(candidate).trim();
+          if (normalized) {
+            return normalized;
+          }
         }
       }
-    }
-    return "";
-  }, []);
+      return "";
+    },
+    [],
+  );
 
   const startThreadForWorkspace = useCallback(
     async (workspaceId: string, options?: { activate?: boolean; engine?: "claude" | "codex" | "gemini" | "opencode" }) => {
@@ -618,51 +698,55 @@ export function useThreadActions({
               engine: "codex",
             });
           });
-          for (const relatedThreadId of relatedThreadIds) {
-            if (
-              !relatedThreadId ||
-              relatedThreadId === threadId ||
-              loadedThreadsRef.current[relatedThreadId]
-            ) {
-              continue;
-            }
-            try {
-              const relatedSnapshot = await createHistoryLoader(relatedThreadId).load(
-                relatedThreadId,
-              );
-              if (relatedSnapshot.items.length > 0) {
+          const pendingRelatedThreadIds = relatedThreadIds.filter(
+            (relatedThreadId) =>
+              Boolean(relatedThreadId) &&
+              relatedThreadId !== threadId &&
+              !loadedThreadsRef.current[relatedThreadId],
+          );
+          await mapWithConcurrency(
+            pendingRelatedThreadIds,
+            RELATED_THREAD_LOAD_CONCURRENCY,
+            async (relatedThreadId) => {
+              try {
+                const relatedSnapshot = await createHistoryLoader(relatedThreadId).load(
+                  relatedThreadId,
+                );
+                if (relatedSnapshot.items.length > 0) {
+                  dispatch({
+                    type: "setThreadItems",
+                    threadId: relatedThreadId,
+                    items: relatedSnapshot.items,
+                  });
+                }
                 dispatch({
-                  type: "setThreadItems",
+                  type: "setThreadPlan",
                   threadId: relatedThreadId,
-                  items: relatedSnapshot.items,
+                  plan: relatedSnapshot.plan,
+                });
+                restoreThreadParentLinksFromSnapshot(
+                  relatedThreadId,
+                  relatedSnapshot.items,
+                  updateThreadParent,
+                );
+                loadedThreadsRef.current[relatedThreadId] = true;
+              } catch (error) {
+                onDebug?.({
+                  id: `${Date.now()}-history-loader-related-error`,
+                  timestamp: Date.now(),
+                  source: "error",
+                  label: "thread/history related loader error",
+                  payload: {
+                    workspaceId,
+                    threadId,
+                    relatedThreadId,
+                    error: error instanceof Error ? error.message : String(error),
+                  },
                 });
               }
-              dispatch({
-                type: "setThreadPlan",
-                threadId: relatedThreadId,
-                plan: relatedSnapshot.plan,
-              });
-              restoreThreadParentLinksFromSnapshot(
-                relatedThreadId,
-                relatedSnapshot.items,
-                updateThreadParent,
-              );
-              loadedThreadsRef.current[relatedThreadId] = true;
-            } catch (error) {
-              onDebug?.({
-                id: `${Date.now()}-history-loader-related-error`,
-                timestamp: Date.now(),
-                source: "error",
-                label: "thread/history related loader error",
-                payload: {
-                  workspaceId,
-                  threadId,
-                  relatedThreadId,
-                  error: error instanceof Error ? error.message : String(error),
-                },
-              });
-            }
-          }
+              return relatedThreadId;
+            },
+          );
           snapshot.userInputQueue.forEach((request) => {
             dispatch({ type: "addUserInputRequest", request });
           });
@@ -922,7 +1006,7 @@ export function useThreadActions({
         payload: { workspaceId, threadId },
       });
       try {
-        let response: Record<string, unknown>;
+        let response: Record<string, unknown> | null | undefined;
         if (threadId.startsWith("claude:")) {
           const workspacePath = workspacePathsByIdRef.current[workspaceId];
           if (!workspacePath) {
@@ -1213,14 +1297,16 @@ export function useThreadActions({
             const name = customName
               ? customName
               : preview.length > 0
-                ? preview
+                ? previewThreadName(preview, fallbackName)
                 : fallbackName;
             const engineSource = engineById.get(id) ?? ("codex" as const);
+            const sourceMeta = resolveThreadSourceMeta(thread);
             return {
               id,
               name,
               updatedAt: getThreadTimestamp(thread),
               engineSource,
+              ...sourceMeta,
             };
           })
           .filter((entry) => entry.id);
@@ -1253,8 +1339,7 @@ export function useThreadActions({
                 name:
                   mappedTitles[id] ||
                   getCustomName(workspace.id, id) ||
-                  session.firstMessage ||
-                  "Claude Session",
+                  previewThreadName(session.firstMessage, "Claude Session"),
                 updatedAt,
                 engineSource: "claude",
               };
@@ -1289,8 +1374,7 @@ export function useThreadActions({
               name:
                 mappedTitles[id] ||
                 getCustomName(workspace.id, id) ||
-                session.title ||
-                "OpenCode Session",
+                previewThreadName(session.title, "OpenCode Session"),
               updatedAt,
               engineSource: "opencode",
             };
@@ -1535,9 +1619,14 @@ export function useThreadActions({
           const name = customName
             ? customName
             : preview.length > 0
-              ? preview
+              ? previewThreadName(preview, fallbackName)
               : fallbackName;
-          additions.push({ id, name, updatedAt: getThreadTimestamp(thread) });
+          additions.push({
+            id,
+            name,
+            updatedAt: getThreadTimestamp(thread),
+            ...resolveThreadSourceMeta(thread),
+          });
           existingIds.add(id);
         });
 

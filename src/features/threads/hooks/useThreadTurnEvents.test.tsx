@@ -26,6 +26,7 @@ type SetupOverrides = {
   pendingInterrupts?: string[];
   interruptedThreads?: string[];
   activeThreadId?: string | null;
+  activeTurnIdByThread?: Record<string, string | null>;
 };
 
 const makeOptions = (overrides: SetupOverrides = {}) => {
@@ -43,6 +44,10 @@ const makeOptions = (overrides: SetupOverrides = {}) => {
   const renameAutoTitlePendingKey = vi.fn();
   const renameThreadTitleMapping = vi.fn();
   const resolvePendingThreadForSession = vi.fn();
+  const activeTurnIdByThread = overrides.activeTurnIdByThread ?? {};
+  const getActiveTurnIdForThread = vi.fn(
+    (threadId: string) => activeTurnIdByThread[threadId] ?? null,
+  );
   const renamePendingMemoryCaptureKey = vi.fn();
   const pendingInterruptsRef = {
     current: new Set(overrides.pendingInterrupts ?? []),
@@ -70,6 +75,7 @@ const makeOptions = (overrides: SetupOverrides = {}) => {
       renameAutoTitlePendingKey,
       renameThreadTitleMapping,
       resolvePendingThreadForSession,
+      getActiveTurnIdForThread,
       renamePendingMemoryCaptureKey,
     }),
   );
@@ -90,6 +96,7 @@ const makeOptions = (overrides: SetupOverrides = {}) => {
     renameAutoTitlePendingKey,
     renameThreadTitleMapping,
     resolvePendingThreadForSession,
+    getActiveTurnIdForThread,
     renamePendingMemoryCaptureKey,
     pendingInterruptsRef,
     interruptedThreadsRef,
@@ -130,7 +137,7 @@ describe("useThreadTurnEvents", () => {
       type: "setThreadName",
       workspaceId: "ws-1",
       threadId: "thread-1",
-      name: "A brand new thread",
+      name: "A brand ne",
     });
     expect(recordThreadActivity).toHaveBeenCalledWith(
       "ws-1",
@@ -352,7 +359,11 @@ describe("useThreadTurnEvents", () => {
       markProcessing,
       setActiveTurnId,
       resolvePendingThreadForSession,
-    } = makeOptions();
+    } = makeOptions({
+      activeTurnIdByThread: {
+        "opencode-pending-abc": "turn-1",
+      },
+    });
     resolvePendingThreadForSession.mockImplementation(
       (_workspaceId: string, engine: "claude" | "gemini" | "opencode") =>
         engine === "opencode" ? "opencode-pending-abc" : null,
@@ -386,6 +397,80 @@ describe("useThreadTurnEvents", () => {
     expect(markProcessing).toHaveBeenCalledWith("opencode-pending-abc", false);
     expect(setActiveTurnId).toHaveBeenCalledWith("opencode:session-1", null);
     expect(setActiveTurnId).toHaveBeenCalledWith("opencode-pending-abc", null);
+  });
+
+  it("does not settle pending alias thread when turn id does not match", () => {
+    const {
+      result,
+      dispatch,
+      markProcessing,
+      setActiveTurnId,
+      resolvePendingThreadForSession,
+    } = makeOptions({
+      activeTurnIdByThread: {
+        "opencode-pending-abc": "turn-new",
+      },
+    });
+    resolvePendingThreadForSession.mockImplementation(
+      (_workspaceId: string, engine: "claude" | "gemini" | "opencode") =>
+        engine === "opencode" ? "opencode-pending-abc" : null,
+    );
+
+    act(() => {
+      result.current.onTurnCompleted("ws-1", "opencode:session-1", "turn-old");
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "finalizePendingToolStatuses",
+      threadId: "opencode:session-1",
+      status: "completed",
+    });
+    expect(dispatch).not.toHaveBeenCalledWith({
+      type: "finalizePendingToolStatuses",
+      threadId: "opencode-pending-abc",
+      status: "completed",
+    });
+    expect(markProcessing).toHaveBeenCalledWith("opencode:session-1", false);
+    expect(markProcessing).not.toHaveBeenCalledWith("opencode-pending-abc", false);
+    expect(setActiveTurnId).toHaveBeenCalledWith("opencode:session-1", null);
+    expect(setActiveTurnId).not.toHaveBeenCalledWith("opencode-pending-abc", null);
+  });
+
+  it("does not settle pending alias thread when completed event has empty turn id", () => {
+    const {
+      result,
+      dispatch,
+      markProcessing,
+      setActiveTurnId,
+      resolvePendingThreadForSession,
+    } = makeOptions({
+      activeTurnIdByThread: {
+        "opencode-pending-abc": "turn-new",
+      },
+    });
+    resolvePendingThreadForSession.mockImplementation(
+      (_workspaceId: string, engine: "claude" | "gemini" | "opencode") =>
+        engine === "opencode" ? "opencode-pending-abc" : null,
+    );
+
+    act(() => {
+      result.current.onTurnCompleted("ws-1", "opencode:session-1", "");
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "finalizePendingToolStatuses",
+      threadId: "opencode:session-1",
+      status: "completed",
+    });
+    expect(dispatch).not.toHaveBeenCalledWith({
+      type: "finalizePendingToolStatuses",
+      threadId: "opencode-pending-abc",
+      status: "completed",
+    });
+    expect(markProcessing).toHaveBeenCalledWith("opencode:session-1", false);
+    expect(markProcessing).not.toHaveBeenCalledWith("opencode-pending-abc", false);
+    expect(setActiveTurnId).toHaveBeenCalledWith("opencode:session-1", null);
+    expect(setActiveTurnId).not.toHaveBeenCalledWith("opencode-pending-abc", null);
   });
 
   it("renames local mappings when claude pending thread gets real session id", () => {
@@ -863,6 +948,49 @@ describe("useThreadTurnEvents", () => {
       "会话失败：boom",
     );
     expect(safeMessageActivity).toHaveBeenCalled();
+  });
+
+  it("does not settle pending alias thread on error when turn id is empty", () => {
+    const {
+      result,
+      dispatch,
+      markProcessing,
+      markReviewing,
+      setActiveTurnId,
+      resolvePendingThreadForSession,
+    } = makeOptions({
+      activeTurnIdByThread: {
+        "opencode-pending-abc": "turn-new",
+      },
+    });
+    resolvePendingThreadForSession.mockImplementation(
+      (_workspaceId: string, engine: "claude" | "gemini" | "opencode") =>
+        engine === "opencode" ? "opencode-pending-abc" : null,
+    );
+
+    act(() => {
+      result.current.onTurnError("ws-1", "opencode:session-1", "", {
+        message: "boom",
+        willRetry: false,
+      });
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "finalizePendingToolStatuses",
+      threadId: "opencode:session-1",
+      status: "failed",
+    });
+    expect(dispatch).not.toHaveBeenCalledWith({
+      type: "finalizePendingToolStatuses",
+      threadId: "opencode-pending-abc",
+      status: "failed",
+    });
+    expect(markProcessing).toHaveBeenCalledWith("opencode:session-1", false);
+    expect(markProcessing).not.toHaveBeenCalledWith("opencode-pending-abc", false);
+    expect(markReviewing).toHaveBeenCalledWith("opencode:session-1", false);
+    expect(markReviewing).not.toHaveBeenCalledWith("opencode-pending-abc", false);
+    expect(setActiveTurnId).toHaveBeenCalledWith("opencode:session-1", null);
+    expect(setActiveTurnId).not.toHaveBeenCalledWith("opencode-pending-abc", null);
   });
 
   it("ignores turn errors that will retry", () => {

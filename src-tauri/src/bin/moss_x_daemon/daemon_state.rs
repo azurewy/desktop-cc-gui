@@ -8,15 +8,58 @@ fn is_valid_claude_model_for_passthrough(model: &str) -> bool {
         return false;
     }
     trimmed.chars().all(|ch| {
-        ch.is_ascii_alphanumeric()
-            || matches!(
-                ch,
-                '-' | '_' | '.' | ':' | '/' | '[' | ']'
-            )
+        ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | ':' | '/' | '[' | ']')
     })
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct CodexRuntimeReloadResult {
+    status: String,
+    stage: String,
+    restarted_sessions: usize,
+    message: Option<String>,
+}
+
 impl DaemonState {
+    fn allowed_external_skill_roots(
+        &self,
+        workspaces: &HashMap<String, WorkspaceEntry>,
+        workspace_id: &str,
+    ) -> Result<Vec<PathBuf>, String> {
+        let entry = workspaces
+            .get(workspace_id)
+            .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+        let parent_entry = entry
+            .parent_id
+            .as_ref()
+            .and_then(|parent_id| workspaces.get(parent_id));
+
+        let mut roots = vec![
+            self.data_dir.join("workspaces").join(&entry.id).join("skills"),
+            PathBuf::from(&entry.path).join(".claude").join("skills"),
+            PathBuf::from(&entry.path).join(".codex").join("skills"),
+            PathBuf::from(&entry.path).join(".gemini").join("skills"),
+            PathBuf::from(&entry.path).join(".agents").join("skills"),
+        ];
+
+        if let Some(home) = dirs::home_dir() {
+            roots.push(home.join(".claude").join("skills"));
+            roots.push(home.join(".gemini").join("skills"));
+            roots.push(home.join(".agents").join("skills"));
+        }
+
+        if let Some(codex_home) = codex::home::resolve_workspace_codex_home(entry, parent_entry)
+            .or_else(codex::home::resolve_default_codex_home)
+        {
+            roots.push(codex_home.join("skills"));
+        }
+
+        roots.sort();
+        roots.dedup();
+        Ok(roots)
+    }
+
     pub(super) fn load(config: &DaemonConfig, event_sink: DaemonEventSink) -> Self {
         let storage_path = config.data_dir.join("workspaces.json");
         let settings_path = config.data_dir.join("settings.json");
@@ -39,6 +82,7 @@ impl DaemonState {
             storage_path,
             settings_path,
             app_settings: Mutex::new(app_settings),
+            codex_runtime_reload_lock: Mutex::new(()),
             web_service_runtime: Mutex::new(web_service_runtime),
             event_sink,
             codex_login_cancels: Mutex::new(HashMap::new()),
@@ -417,6 +461,49 @@ impl DaemonState {
             *active = engine;
         }
         Ok(updated)
+    }
+
+    pub(super) async fn reload_codex_runtime_config(
+        &self,
+    ) -> Result<CodexRuntimeReloadResult, String> {
+        let _reload_guard = self.codex_runtime_reload_lock.lock().await;
+        let restarted_sessions = {
+            let sessions = self.sessions.lock().await;
+            sessions.len()
+        };
+        if restarted_sessions == 0 {
+            return Ok(CodexRuntimeReloadResult {
+                status: "applied".to_string(),
+                stage: "noop".to_string(),
+                restarted_sessions: 0,
+                message: Some("No connected Codex sessions to reload.".to_string()),
+            });
+        }
+
+        let client_version = env!("CARGO_PKG_VERSION").to_string();
+        settings_core::restart_codex_sessions_for_app_settings_change_core(
+            &self.workspaces,
+            &self.sessions,
+            &self.app_settings,
+            |entry, default_bin, codex_args, codex_home| {
+                spawn_with_client(
+                    self.event_sink.clone(),
+                    client_version.clone(),
+                    entry,
+                    default_bin,
+                    codex_args,
+                    codex_home,
+                )
+            },
+        )
+        .await?;
+
+        Ok(CodexRuntimeReloadResult {
+            status: "applied".to_string(),
+            stage: "swapped".to_string(),
+            restarted_sessions,
+            message: None,
+        })
     }
 
     pub(super) async fn sync_engine_configs(&self) {
@@ -1339,13 +1426,11 @@ impl DaemonState {
         workspace_id: String,
         path: String,
     ) -> Result<WorkspaceFilesResponse, String> {
-        {
+        let allowed_roots = {
             let workspaces = self.workspaces.lock().await;
-            if !workspaces.contains_key(&workspace_id) {
-                return Err(format!("Workspace not found: {workspace_id}"));
-            }
-        }
-        list_external_absolute_directory_children_inner(&path, 2_000)
+            self.allowed_external_skill_roots(&workspaces, &workspace_id)?
+        };
+        list_external_absolute_directory_children_inner(&path, &allowed_roots, 2_000)
     }
 
     pub(super) async fn read_workspace_file(
@@ -1396,13 +1481,11 @@ impl DaemonState {
         workspace_id: String,
         path: String,
     ) -> Result<WorkspaceFileResponse, String> {
-        {
+        let allowed_roots = {
             let workspaces = self.workspaces.lock().await;
-            if !workspaces.contains_key(&workspace_id) {
-                return Err(format!("Workspace not found: {workspace_id}"));
-            }
-        }
-        read_external_absolute_file_inner(&path)
+            self.allowed_external_skill_roots(&workspaces, &workspace_id)?
+        };
+        read_external_absolute_file_inner(&path, &allowed_roots)
     }
 
     pub(super) async fn write_external_spec_file(
@@ -1427,13 +1510,11 @@ impl DaemonState {
         path: String,
         content: String,
     ) -> Result<(), String> {
-        {
+        let allowed_roots = {
             let workspaces = self.workspaces.lock().await;
-            if !workspaces.contains_key(&workspace_id) {
-                return Err(format!("Workspace not found: {workspace_id}"));
-            }
-        }
-        write_external_absolute_file_inner(&path, &content)
+            self.allowed_external_skill_roots(&workspaces, &workspace_id)?
+        };
+        write_external_absolute_file_inner(&path, &allowed_roots, &content)
     }
 
     pub(super) async fn file_read(

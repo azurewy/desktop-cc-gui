@@ -119,10 +119,8 @@ import {
   openOrFocusDetachedFileExplorer,
 } from "./features/files/detachedFileExplorer";
 import {
-  getSelectedAgentConfig,
   getOpenCodeAgentsList,
   ensureWorkspacePathDir,
-  setSelectedAgentConfig,
   getWorkspaceFiles,
   pickWorkspacePath,
   readPanelLockPasswordFile,
@@ -137,7 +135,6 @@ import type {
   OpenCodeAgentOption,
   RequestUserInputRequest,
   RequestUserInputResponse,
-  SelectedAgentOption,
   WorkspaceInfo,
 } from "./types";
 import { getClientStoreSync, writeClientStoreValue } from "./services/clientStorage";
@@ -167,6 +164,7 @@ import { useAppShellSearchAndComposerSection } from "./app-shell-parts/useAppShe
 import { useAppShellSections } from "./app-shell-parts/useAppShellSections";
 import { useAppShellLayoutNodesSection } from "./app-shell-parts/useAppShellLayoutNodesSection";
 import { renderAppShell } from "./app-shell-parts/renderAppShell";
+import { useSelectedAgentSession } from "./app-shell-parts/useSelectedAgentSession";
 import {
   RADAR_STORE_NAME,
   SESSION_RADAR_RECENT_STORAGE_KEY,
@@ -668,69 +666,6 @@ export function AppShell() {
   const [openCodeDefaultVariantByWorkspace, setOpenCodeDefaultVariantByWorkspace] = useState<
     Record<string, string | null>
   >({});
-  const [selectedAgent, setSelectedAgent] = useState<SelectedAgentOption | null>(null);
-
-  const reloadSelectedAgent = useCallback(async () => {
-    try {
-      const selected = await getSelectedAgentConfig();
-      const agent = selected.agent;
-      setSelectedAgent(
-        agent
-          ? {
-              id: agent.id,
-              name: agent.name,
-              prompt: agent.prompt ?? null,
-            }
-          : null,
-      );
-    } catch (error) {
-      addDebugEntry({
-        id: `${Date.now()}-agent-selected-load-error`,
-        timestamp: Date.now(),
-        source: "error",
-        label: "agent/selected load error",
-        payload: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }, [addDebugEntry]);
-
-  const handleSelectAgent = useCallback(
-    (agent: SelectedAgentOption | null) => {
-      const normalized =
-        agent && agent.id.trim().length > 0
-          ? {
-              id: agent.id.trim(),
-              name: agent.name.trim(),
-              prompt: agent.prompt ?? null,
-            }
-          : null;
-      setSelectedAgent(normalized);
-      void setSelectedAgentConfig(normalized?.id ?? null)
-        .then((result) => {
-          if (!result.agent) {
-            if (!normalized) {
-              setSelectedAgent(null);
-            }
-            return;
-          }
-          setSelectedAgent({
-            id: result.agent.id,
-            name: result.agent.name,
-            prompt: result.agent.prompt ?? null,
-          });
-        })
-        .catch((error) => {
-          addDebugEntry({
-            id: `${Date.now()}-agent-selected-save-error`,
-            timestamp: Date.now(),
-            source: "error",
-            label: "agent/selected save error",
-            payload: error instanceof Error ? error.message : String(error),
-          });
-        });
-    },
-    [addDebugEntry],
-  );
 
   useEffect(() => {
     if (activeEngine !== "opencode") {
@@ -1272,6 +1207,20 @@ export function AppShell() {
     resolveCollaborationRuntimeMode,
     onCollaborationModeResolved: handleCollaborationModeResolved,
   });
+
+  const {
+    selectedAgent,
+    selectedAgentRef,
+    handleSelectAgent,
+    reloadSelectedAgent,
+    reloadAgentCatalog,
+  } = useSelectedAgentSession({
+    activeThreadId,
+    activeWorkspaceId,
+    resolveCanonicalThreadId,
+    onDebug: addDebugEntry,
+  });
+
   const claudeModelRefreshThreadKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -1452,42 +1401,44 @@ export function AppShell() {
   useEffect(() => {
     activeThreadIdRef.current = activeThreadId ?? null;
   }, [activeThreadId]);
-  const previousThreadIdRef = useRef<string | null>(null);
+  const previousOpenCodeThreadIdRef = useRef<string | null>(null);
   useEffect(() => {
-    const previous = previousThreadIdRef.current;
+    const previousThreadId = previousOpenCodeThreadIdRef.current;
     if (
-      previous &&
+      previousThreadId &&
       activeThreadId &&
-      previous !== activeThreadId &&
-      previous.startsWith("opencode-pending-") &&
+      previousThreadId !== activeThreadId &&
+      previousThreadId.startsWith("opencode-pending-") &&
       activeThreadId.startsWith("opencode:")
     ) {
       setOpenCodeAgentByThreadId((prev) => {
-        if (!(previous in prev) || activeThreadId in prev) {
+        if (!(previousThreadId in prev) || activeThreadId in prev) {
           return prev;
         }
-        return { ...prev, [activeThreadId]: prev[previous] ?? null };
+        return { ...prev, [activeThreadId]: prev[previousThreadId] ?? null };
       });
       setOpenCodeVariantByThreadId((prev) => {
-        if (!(previous in prev) || activeThreadId in prev) {
+        if (!(previousThreadId in prev) || activeThreadId in prev) {
           return prev;
         }
-        return { ...prev, [activeThreadId]: prev[previous] ?? null };
+        return { ...prev, [activeThreadId]: prev[previousThreadId] ?? null };
       });
     }
-    previousThreadIdRef.current = activeThreadId ?? null;
-  }, [activeThreadId]);
+    previousOpenCodeThreadIdRef.current = activeThreadId ?? null;
+  }, [
+    activeThreadId,
+  ]);
 
   useEffect(() => {
-    void reloadSelectedAgent();
-  }, [activeThreadId, reloadSelectedAgent]);
+    void reloadAgentCatalog();
+  }, [reloadAgentCatalog]);
 
   useEffect(() => {
     if (!settingsOpen) {
       forceRefreshAgents();
-      void reloadSelectedAgent();
+      void reloadAgentCatalog();
     }
-  }, [reloadSelectedAgent, settingsOpen]);
+  }, [reloadAgentCatalog, settingsOpen]);
 
   const selectedOpenCodeAgent = useMemo(
     () => resolveOpenCodeAgentForThread(activeThreadId),
@@ -2878,7 +2829,7 @@ export function AppShell() {
     openCodeVariantByThreadId, openDeleteThreadPrompt, openFileTabs, openPlanPanel, openReleaseNotes, openRenamePrompt, openRenameWorktreePrompt, openSettings,
     openTerminal, openWorktreePrompt, path, payload, perfSnapshotRef, persistProjectCopiesFolder, pickImages, pinThread,
     pinnedThreadsVersion, planByThread, planPanelHeight, pointerId, prefillDraft, prevFiles, previous, previousAgentTimestamp,
-    previousDurationMs, previousThreadIdRef, previousTracker, prompts, pushError, pushLoading, queueGitStatusRefresh, queueMessage,
+    previousDurationMs, previousTracker, prompts, pushError, pushLoading, queueGitStatusRefresh, queueMessage,
     queueSaveSettings, rafId, rateLimitsByWorkspace, reasoningOptions, reasoningSupported, recentThreads, reduceTransparency, refreshAccountInfo,
     refreshAccountRateLimits, refreshFiles, refreshGitDiffs, refreshGitLog, refreshGitStatus, refreshThread, refreshWorkspaces, releaseNotesActiveIndex,
     releaseNotesEntries, releaseNotesError, releaseNotesLoading, releaseNotesOpen, reloadSelectedAgent, removeImage, removeImagesForThread, removeThread,
@@ -2889,6 +2840,7 @@ export function AppShell() {
     scaleShortcutText, scaleShortcutTitle, scanGitRoots, scheduleDraggedHeightFlush, scopedKanbanTasks, searchContentFilters, searchPaletteQuery, searchPaletteSelectedIndex,
     searchResults, searchScope, selectBranch, selectBranchAtIndex, selectCommit, selectCommitAtIndex, selectHome, selectWorkspace,
     selected, selectedAgent, selectedAnswer, selectedCollaborationMode, selectedCollaborationModeId, selectedCommitSha, selectedDiffPath, selectedEffort,
+    selectedAgentRef,
     selectedKanbanTaskId, selectedModelId, selectedOpenCodeAgent, selectedOpenCodeVariant, selectedPath, selectedPullRequest, selection, sendUserMessage,
     sendUserMessageToThread, sessions, setAccessMode, setActiveEditorLineRange, setActiveEngine, setActiveTab, setActiveThreadId, setActiveWorkspaceId,
     setAppMode, setAppSettings, setCenterMode, setCodexCollaborationMode, setCollaborationRuntimeModeByThread, setCollaborationUiModeByThread, setComposerInsert, setDebugOpen,
@@ -2896,7 +2848,7 @@ export function AppShell() {
     setGitPanelMode, setGitRootScanDepth, setGlobalSearchFilesByWorkspace, setHighlightedBranchIndex, setHighlightedCommitIndex, setHighlightedPresetIndex, setIsEditorFileMaximized, setIsPanelLocked,
     setIsPlanPanelDismissed, setIsSearchPaletteOpen, setKanbanViewState, setLiveEditPreviewEnabled, setOpenCodeAgentByThreadId, setOpenCodeAgents, setOpenCodeDefaultAgentByWorkspace, setOpenCodeDefaultVariantByWorkspace,
     setOpenCodeVariantByThreadId, setPrefillDraft, setReduceTransparency, setRightPanelWidth, setSearchContentFilters, setSearchPaletteQuery, setSearchPaletteSelectedIndex, setSearchScope,
-    setSelectedAgent, setSelectedCollaborationModeId, setSelectedCommitSha, setSelectedDiffPath, setSelectedEffort, setSelectedKanbanTaskId, setSelectedModelId, setSelectedPullRequest,
+    setSelectedCollaborationModeId, setSelectedCommitSha, setSelectedDiffPath, setSelectedEffort, setSelectedKanbanTaskId, setSelectedModelId, setSelectedPullRequest,
     setWorkspaceHomeWorkspaceId, settingsHighlightTarget, settingsOpen, settingsSection, shouldForceResumeInCode, shouldImplementPlan, shouldLoadDiffs, shouldLoadGitHubPanelData,
     showDebugButton, showGitHistory, showHome, showKanban, showNextReleaseNotes, showPresetStep, showPreviousReleaseNotes, showWorkspaceHome,
     sidebarCollapsed, sidebarWidth, skills, snapshot, startExport, startFast, startFork, startHeight,

@@ -136,6 +136,7 @@ export function useAppShellSections(ctx: any) {
     setAppMode,
     activeEngine,
     selectedAgent,
+    selectedAgentRef,
     activeWorkspaceId,
     activeThreadId,
     normalizePath,
@@ -339,19 +340,22 @@ export function useAppShellSections(ctx: any) {
       if (activeEngine === "opencode") {
         return options;
       }
+      const selectedAgentForSend =
+        selectedAgentRef?.current ?? selectedAgent ?? null;
       const merged: MessageSendOptions = {
         ...(options ?? {}),
-        selectedAgent: selectedAgent
+        selectedAgent: selectedAgentForSend
           ? {
-              id: selectedAgent.id,
-              name: selectedAgent.name,
-              prompt: selectedAgent.prompt ?? null,
+              id: selectedAgentForSend.id,
+              name: selectedAgentForSend.name,
+              prompt: selectedAgentForSend.prompt ?? null,
+              icon: selectedAgentForSend.icon ?? null,
             }
           : null,
       };
       return merged;
     },
-    [activeEngine, selectedAgent],
+    [activeEngine, selectedAgent, selectedAgentRef],
   );
 
   const handleComposerSendWithKanban = useCallback(

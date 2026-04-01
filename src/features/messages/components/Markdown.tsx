@@ -77,7 +77,7 @@ function extractLanguageTag(className?: string) {
   if (!match) {
     return null;
   }
-  return match[1];
+  return match[1] ?? null;
 }
 
 function extractCodeFromPre(node?: PreProps["node"]) {
@@ -146,23 +146,23 @@ function normalizeListIndentation(value: string) {
       return line;
     }
 
-    const orderedMatch = line.match(/^(\s*)(\d+)\.(\s*)(.*)$/);
-    const orderedContent = orderedMatch?.[4] ?? "";
-    const orderedHasWhitespace = (orderedMatch?.[3].length ?? 0) > 0;
+  const orderedMatch = line.match(/^(\s*)(\d+)\.(\s*)(.*)$/);
+  const orderedContent = orderedMatch?.[4] ?? "";
+  const orderedHasWhitespace = ((orderedMatch?.[3] ?? "").length ?? 0) > 0;
     const orderedLooksDecimal =
       Boolean(orderedContent) &&
       !orderedHasWhitespace &&
       /^\d/.test(orderedContent);
     if (orderedMatch && !orderedLooksDecimal) {
-      const rawIndent = orderedMatch[1].length;
+      const rawIndent = (orderedMatch[1] ?? "").length;
       const normalizedIndent = rawIndent;
       activeOrderedItem = true;
       orderedBaseIndent = normalizedIndent + 4;
       orderedIndentOffset = null;
       const normalizedBody = orderedContent.trimStart();
       const normalizedLine = normalizedBody
-        ? `${spaces(normalizedIndent)}${orderedMatch[2]}. ${normalizedBody}`
-        : `${spaces(normalizedIndent)}${orderedMatch[2]}.`;
+        ? `${spaces(normalizedIndent)}${orderedMatch[2] ?? ""}. ${normalizedBody}`
+        : `${spaces(normalizedIndent)}${orderedMatch[2] ?? ""}.`;
       if (normalizedIndent !== rawIndent || normalizedLine !== line) {
         return normalizedLine;
       }
@@ -171,7 +171,7 @@ function normalizeListIndentation(value: string) {
 
     const bulletMatch = line.match(/^(\s*)([-*+])\s+/);
     if (bulletMatch) {
-      const rawIndent = bulletMatch[1].length;
+      const rawIndent = (bulletMatch[1] ?? "").length;
       let targetIndent = rawIndent;
 
       if (activeOrderedItem) {
@@ -259,7 +259,7 @@ function extractBlockquoteParagraphText(paragraph: string) {
     if (!match) {
       return null;
     }
-    const content = match[1].trim();
+    const content = (match[1] ?? "").trim();
     if (!content || startsWithMarkdownBlockSyntax(content)) {
       return null;
     }
@@ -692,7 +692,7 @@ function LinkBlock({ urls }: LinkBlockProps) {
 
 function CodeBlock({ className, value, copyUseModifier }: CodeBlockProps) {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
+  const [copiedMode, setCopiedMode] = useState<"plain" | "fenced" | null>(null);
   const copyTimeoutRef = useRef<number | null>(null);
   const languageTag = extractLanguageTag(className);
   const languageLabel = languageTag ?? "Code";
@@ -712,15 +712,29 @@ function CodeBlock({ className, value, copyUseModifier }: CodeBlockProps) {
 
   const handleCopy = async (event: MouseEvent<HTMLButtonElement>) => {
     try {
-      const shouldFence = copyUseModifier ? event.altKey : true;
-      const nextValue = shouldFence ? fencedValue : value;
+      const nextValue = copyUseModifier && event.altKey ? fencedValue : value;
       await navigator.clipboard.writeText(nextValue);
-      setCopied(true);
+      setCopiedMode(nextValue === fencedValue ? "fenced" : "plain");
       if (copyTimeoutRef.current) {
         window.clearTimeout(copyTimeoutRef.current);
       }
       copyTimeoutRef.current = window.setTimeout(() => {
-        setCopied(false);
+        setCopiedMode(null);
+      }, 1200);
+    } catch {
+      // No-op: clipboard errors can occur in restricted contexts.
+    }
+  };
+
+  const handleCopyFenced = async () => {
+    try {
+      await navigator.clipboard.writeText(fencedValue);
+      setCopiedMode("fenced");
+      if (copyTimeoutRef.current) {
+        window.clearTimeout(copyTimeoutRef.current);
+      }
+      copyTimeoutRef.current = window.setTimeout(() => {
+        setCopiedMode(null);
       }, 1200);
     } catch {
       // No-op: clipboard errors can occur in restricted contexts.
@@ -731,15 +745,26 @@ function CodeBlock({ className, value, copyUseModifier }: CodeBlockProps) {
     <div className="markdown-codeblock">
       <div className="markdown-codeblock-header">
         <span className="markdown-codeblock-language">{languageLabel}</span>
-        <button
-          type="button"
-          className={`ghost markdown-codeblock-copy${copied ? " is-copied" : ""}`}
-          onClick={handleCopy}
-          aria-label={t("messages.copyCodeBlock")}
-          title={copied ? t("messages.copied") : t("messages.copy")}
-        >
-          {copied ? t("messages.copied") : t("messages.copy")}
-        </button>
+        <div className="markdown-codeblock-actions">
+          <button
+            type="button"
+            className={`ghost markdown-codeblock-copy${copiedMode === "plain" ? " is-copied" : ""}`}
+            onClick={handleCopy}
+            aria-label={t("messages.copyCodeBlock")}
+            title={copiedMode === "plain" ? t("messages.copied") : t("messages.copy")}
+          >
+            {copiedMode === "plain" ? t("messages.copied") : t("messages.copy")}
+          </button>
+          <button
+            type="button"
+            className={`ghost markdown-codeblock-copy${copiedMode === "fenced" ? " is-copied" : ""}`}
+            onClick={handleCopyFenced}
+            aria-label={t("messages.copyCodeBlockWithFence")}
+            title={copiedMode === "fenced" ? t("messages.copied") : t("messages.copyWithFence")}
+          >
+            {copiedMode === "fenced" ? t("messages.copied") : t("messages.copyWithFence")}
+          </button>
+        </div>
       </div>
       <pre>
         <code
@@ -770,7 +795,7 @@ function extractMermaidContent(languageTag: string | null, value: string): strin
   // Case 2: fenced marker leaked into the content (e.g. ```mermaid\n...\n```)
   const fencedMatch = value.match(/^```mermaid\s*\n([\s\S]*?)(?:\n```\s*)?$/);
   if (fencedMatch) {
-    const inner = fencedMatch[1].trim();
+    const inner = (fencedMatch[1] ?? "").trim();
     if (inner) return inner;
   }
   return null;
@@ -799,7 +824,7 @@ function PreBlock({ node, children, copyUseModifier }: PreProps) {
     return <LinkBlock urls={urlLines} />;
   }
   const languageTag = extractLanguageTag(className);
-  const mermaidContent = extractMermaidContent(languageTag, value);
+  const mermaidContent = extractMermaidContent(languageTag, value ?? "");
   if (mermaidContent) {
     return (
       <Suspense fallback={<MermaidFallback />}>

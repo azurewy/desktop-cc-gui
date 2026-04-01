@@ -130,6 +130,7 @@ describe("useThreadMessaging", () => {
       threadEngineById?: Record<string, "claude" | "codex" | "gemini" | "opencode" | undefined>;
       itemsByThread?: Record<string, ConversationItem[]>;
       startThreadForWorkspace?: ReturnType<typeof vi.fn>;
+      refreshThread?: ReturnType<typeof vi.fn>;
       dispatch?: ReturnType<typeof vi.fn>;
     } = {},
   ) {
@@ -149,6 +150,7 @@ describe("useThreadMessaging", () => {
     const startThreadForWorkspace =
       overrides.startThreadForWorkspace ??
       vi.fn(async () => ensuredThreadId);
+    const refreshThread = overrides.refreshThread ?? vi.fn(async () => null);
 
     const hook = renderHook(() =>
       useThreadMessaging({
@@ -180,7 +182,7 @@ describe("useThreadMessaging", () => {
         pushThreadErrorMessage,
         ensureThreadForActiveWorkspace: async () => ensuredThreadId,
         ensureThreadForWorkspace: async () => ensuredThreadId,
-        refreshThread: async () => null,
+        refreshThread,
         forkThreadForWorkspace: async () => null,
         updateThreadParent: vi.fn(),
         startThreadForWorkspace,
@@ -1093,6 +1095,144 @@ describe("useThreadMessaging", () => {
     );
   });
 
+  it("retries codex send on refreshed thread when backend rejects legacy thread id", async () => {
+    vi.mocked(sendUserMessage)
+      .mockResolvedValueOnce({
+        error: {
+          message:
+            "invalid thread id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `r` at 1",
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        result: { turn: { id: "turn-rebound-1" } },
+      } as never);
+    const refreshThread = vi.fn(async () => "thread-rebound-1");
+    const startThreadForWorkspace = vi.fn(async () => "thread-rebound-1");
+    const dispatch = vi.fn();
+    const { result } = makeHook("codex", {
+      activeThreadId: "legacy-thread-id",
+      ensuredThreadId: "legacy-thread-id",
+      startThreadForWorkspace,
+      refreshThread,
+      dispatch,
+    });
+
+    await act(async () => {
+      await result.current.sendUserMessage("hello codex");
+    });
+
+    await waitFor(() => {
+      expect(refreshThread).toHaveBeenCalledWith("ws-1", "legacy-thread-id");
+      expect(startThreadForWorkspace).not.toHaveBeenCalled();
+      expect(sendUserMessage).toHaveBeenNthCalledWith(
+        1,
+        "ws-1",
+        "legacy-thread-id",
+        "hello codex",
+        expect.any(Object),
+      );
+      expect(sendUserMessage).toHaveBeenNthCalledWith(
+        2,
+        "ws-1",
+        "thread-rebound-1",
+        "hello codex",
+        expect.any(Object),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "setThreadItems",
+          threadId: "legacy-thread-id",
+        }),
+      );
+    });
+  });
+
+  it("does not create new codex thread when invalid legacy id cannot be refreshed", async () => {
+    vi.mocked(sendUserMessage).mockResolvedValueOnce({
+      error: {
+        message:
+          "invalid thread id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `r` at 1",
+      },
+    } as never);
+    const refreshThread = vi.fn(async () => null);
+    const startThreadForWorkspace = vi.fn(async () => "thread-new-1");
+    const { result, pushThreadErrorMessage } = makeHook("codex", {
+      activeThreadId: "legacy-thread-id",
+      ensuredThreadId: "legacy-thread-id",
+      startThreadForWorkspace,
+      refreshThread,
+    });
+
+    await act(async () => {
+      await result.current.sendUserMessage("hello codex");
+    });
+
+    await waitFor(() => {
+      expect(refreshThread).toHaveBeenCalledWith("ws-1", "legacy-thread-id");
+      expect(startThreadForWorkspace).not.toHaveBeenCalled();
+      expect(sendUserMessage).toHaveBeenCalledTimes(1);
+      expect(pushThreadErrorMessage).toHaveBeenCalledWith(
+        "legacy-thread-id",
+        expect.any(String),
+      );
+    });
+  });
+
+  it("retries codex send once when refresh returns the same thread id", async () => {
+    vi.mocked(sendUserMessage)
+      .mockResolvedValueOnce({
+        error: {
+          message:
+            "invalid thread id: invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `r` at 1",
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        result: { turn: { id: "turn-retry-same-id" } },
+      } as never);
+    const refreshThread = vi.fn(async () => "legacy-thread-id");
+    const startThreadForWorkspace = vi.fn(async () => "thread-new-1");
+    const dispatch = vi.fn();
+    const { result } = makeHook("codex", {
+      activeThreadId: "legacy-thread-id",
+      ensuredThreadId: "legacy-thread-id",
+      startThreadForWorkspace,
+      refreshThread,
+      dispatch,
+    });
+
+    await act(async () => {
+      await result.current.sendUserMessage("hello codex");
+    });
+
+    await waitFor(() => {
+      expect(refreshThread).toHaveBeenCalledWith("ws-1", "legacy-thread-id");
+      expect(startThreadForWorkspace).not.toHaveBeenCalled();
+      expect(sendUserMessage).toHaveBeenCalledTimes(2);
+      expect(sendUserMessage).toHaveBeenNthCalledWith(
+        2,
+        "ws-1",
+        "legacy-thread-id",
+        "hello codex",
+        expect.any(Object),
+      );
+      const optimisticUserBubbleActions = dispatch.mock.calls.filter(
+        ([action]) =>
+          action &&
+          typeof action === "object" &&
+          "type" in action &&
+          (action as { type?: string }).type === "upsertItem" &&
+          "item" in action &&
+          (action as { item?: { kind?: string; role?: string; text?: string } }).item?.kind ===
+            "message" &&
+          (action as { item?: { kind?: string; role?: string; text?: string } }).item?.role ===
+            "user" &&
+          (action as { item?: { kind?: string; role?: string; text?: string } }).item?.text ===
+            "hello codex",
+      );
+      expect(optimisticUserBubbleActions).toHaveLength(1);
+    });
+  });
+
   it("adds optimistic user bubble immediately for codex send", async () => {
     const dispatch = vi.fn();
     const { result } = makeHook("codex", { dispatch });
@@ -1119,6 +1259,62 @@ describe("useThreadMessaging", () => {
     expect(optimisticCall).toBeDefined();
     const optimisticAction = optimisticCall?.[0] as { item?: { id?: string } };
     expect(optimisticAction.item?.id).toMatch(/^optimistic-user-/);
+  });
+
+  it("does not attach selectedAgentIcon when sending without selected agent", async () => {
+    const dispatch = vi.fn();
+    const { result } = makeHook("codex", { dispatch });
+
+    await act(async () => {
+      await result.current.sendUserMessageToThread(workspace, "thread-1", "hello codex");
+    });
+
+    const optimisticCall = dispatch.mock.calls.find(
+      ([action]) =>
+        action &&
+        typeof action === "object" &&
+        "type" in action &&
+        (action as { type?: string }).type === "upsertItem" &&
+        "item" in action &&
+        (action as { item?: { kind?: string; role?: string } }).item?.kind === "message" &&
+        (action as { item?: { kind?: string; role?: string } }).item?.role === "user",
+    );
+    expect(optimisticCall).toBeDefined();
+    const optimisticAction = optimisticCall?.[0] as {
+      item?: { selectedAgentName?: string | null; selectedAgentIcon?: string | null };
+    };
+    expect(optimisticAction.item?.selectedAgentName ?? null).toBeNull();
+    expect(optimisticAction.item?.selectedAgentIcon ?? null).toBeNull();
+  });
+
+  it("injects selected agent name marker into codex prompt block", async () => {
+    const { result } = makeHook("codex");
+
+    await act(async () => {
+      await result.current.sendUserMessageToThread(
+        workspace,
+        "thread-1",
+        "请继续",
+        [],
+        {
+          selectedAgent: {
+            id: "agent-backend-1",
+            name: "后端架构师",
+            prompt: "你是一位资深后端架构师，擅长服务治理和高并发设计。",
+            icon: "agent-robot-03",
+          },
+        },
+      );
+    });
+
+    const calls = vi.mocked(sendUserMessage).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const latestCall = calls[calls.length - 1];
+    const sentText = String(latestCall?.[2] ?? "");
+    expect(sentText).toContain("## Agent Role and Instructions");
+    expect(sentText).toContain("Agent Name: 后端架构师");
+    expect(sentText).toContain("Agent Icon: agent-robot-03");
+    expect(sentText).toContain("你是一位资深后端架构师，擅长服务治理和高并发设计。");
   });
 
   it("releases codex processing state when first packet timeout is recoverable", async () => {

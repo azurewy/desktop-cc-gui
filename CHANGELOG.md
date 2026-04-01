@@ -2,6 +2,50 @@
 
 ---
 
+##### **2026年4月1日（v0.3.7）**
+
+中文：
+
+✨ Features
+- 新增智能体会话隔离机制，并收口首轮会话链路，减少跨会话上下文串扰
+- 完成智能体图标全链路接入（设置、输入区、消息区、线程历史），提升多智能体识别效率
+- 增强 Codex 运行时配置热刷新能力，并支持历史会话输出折叠，降低长会话浏览噪音
+- 统一 assistant final 边界元数据并优化历史恢复链路，提升历史回放一致性
+
+🔧 Improvements
+- 拆分 `Messages` 超大组件与对应测试用例，降低单文件复杂度并提升维护效率
+- 系统性收紧 `noUncheckedIndexedAccess` 与线程条目链路类型边界，减少隐式空值与索引越界风险
+
+🐛 Fixes
+- 修复消息渲染链路中“注入式智能体提示”泄漏到用户正文的问题，避免内容污染
+- 修复代码复制语义混淆：区分纯文本复制与带 fenced code block 的复制路径
+- 修复线程历史中已选智能体上下文丢失问题，保证回放后会话身份连续
+- 修复外部文件访问边界与终端会话清理链路，降低残留会话与越界访问风险
+- 修复智能体图标与名称显示不一致问题
+- 修复 worktree push 在失败原因为空值时的兼容性问题
+
+English:
+
+✨ Features
+- Introduce agent-session isolation and stabilize first-turn routing to reduce cross-session context bleed
+- Complete end-to-end agent icon integration across settings, composer, message rendering, and thread history for faster multi-agent recognition
+- Enhance Codex runtime config hot-refresh and add collapsible history output to reduce noise in long sessions
+- Unify assistant-final boundary metadata and improve history recovery consistency during replay
+
+🔧 Improvements
+- Split oversized `Messages` module and related test suites to lower file complexity and improve maintainability
+- Tighten `noUncheckedIndexedAccess` and thread-item type boundaries to reduce implicit-null and index-access risks
+
+🐛 Fixes
+- Fix injected agent prompts leaking into user-visible message text
+- Fix code-copy behavior by separating plain-text copy from fenced code copy flows
+- Fix loss of selected-agent context when restoring thread history
+- Tighten external file-access constraints and clean up terminal sessions to reduce residual-session risk
+- Fix mismatches between displayed agent icon and agent name
+- Fix worktree push flow to handle empty failure reasons safely
+
+---
+
 ##### **2026年3月30日（v0.3.6）**
 
 English:
