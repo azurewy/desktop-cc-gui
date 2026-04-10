@@ -2,6 +2,52 @@
 
 ---
 
+##### **2026年4月11日（v0.3.12）**
+
+中文：
+
+✨ Features
+- 品牌升级为 `ccgui` 并支持 legacy 数据迁移，降低现有用户升级切换成本
+- 新增幕布宽度配置与左到右视图切换，完善不同布局偏好的使用体验
+- 新增对话/看板快捷键与会话大小展示，提升导航与会话管理效率
+- 优化 `File changes` 折叠展示与独立展开交互，减少长会话浏览噪音
+
+🔧 Improvements
+- 降低实时会话更新对输入链路的干扰，提升连续输入稳定性
+- 拆分设置页样式模块并通过大文件门禁，降低后续样式迭代耦合
+
+🐛 Fixes
+- 修复启动链异常场景下的黑屏问题，增强冷启动兜底能力
+- 修复 Web 端切换 Codex 后无法继续对话与历史丢失问题
+- 修复跨会话绑定边界问题，并增强 Win/mac 命令包装兼容性
+- 修复默认 workspace 去重与路径边界问题，避免配置重复与异常回退
+- 修复消息折叠边界、拖拽预览与 Gemini 会话兼容问题
+- 修复 swapped 侧栏快捷入口顺序与快捷键显示偏差
+- 优化 Windows 内部文件树拖拽视觉反馈，降低拖拽操作歧义
+
+English:
+
+✨ Features
+- Rebrand the app to `ccgui` and support legacy data migration to reduce upgrade friction for existing users
+- Add curtain-width settings and a left-to-right view toggle to better support different layout preferences
+- Add conversation/kanban shortcuts and session-size display to improve navigation and session management
+- Improve `File changes` collapsing and standalone expand interactions to reduce noise in long conversations
+
+🔧 Improvements
+- Reduce interference from realtime session updates in the composer input flow for steadier typing
+- Split settings style modules and pass the large-file guard to reduce styling coupling in future iterations
+
+🐛 Fixes
+- Fix black-screen scenarios during bootstrap failures by adding a safer startup fallback path
+- Fix the inability to continue chatting and the history-loss issue after switching to Codex on Web
+- Fix cross-session binding edge cases and improve Win/mac command-wrapper compatibility
+- Fix default-workspace de-duplication and path edge cases to avoid duplicate config states and bad fallback behavior
+- Fix message-collapse boundaries, drag-preview behavior, and Gemini session compatibility issues
+- Fix incorrect quick-entry order and shortcut labels in the swapped sidebar layout
+- Refine Windows internal file-tree drag feedback to make drag operations clearer
+
+---
+
 ##### **2026年4月9日（v0.3.11）**
 
 中文：
