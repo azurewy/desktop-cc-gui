@@ -1059,6 +1059,68 @@ describe("history loaders", () => {
     expect(assistantMessages[0]?.text).toBe("同一条 assistant 文本");
   });
 
+  it("prefers response_item assistant message when mirror event_msg appears first", () => {
+    const items = parseCodexSessionHistory({
+      entries: [
+        {
+          type: "event_msg",
+          payload: {
+            type: "agent_message",
+            message: "同一条 assistant 文本",
+          },
+        },
+        {
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "同一条 assistant 文本" }],
+          },
+        },
+      ],
+    });
+
+    const assistantMessages = items.filter(
+      (item): item is Extract<(typeof items)[number], { kind: "message" }> =>
+        item.kind === "message" && item.role === "assistant",
+    );
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]?.id).toBe("codex-assistant-2");
+    expect(assistantMessages[0]?.text).toBe("同一条 assistant 文本");
+  });
+
+  it("dedupes codex mirror messages with equivalent \\(...\\) and $...$ delimiters", () => {
+    const items = parseCodexSessionHistory({
+      entries: [
+        {
+          type: "event_msg",
+          payload: {
+            type: "agent_message",
+            message: String.raw`逻辑函数：\\( \sigma(z)=\frac{1}{1+e^{-z}} \\)`,
+          },
+        },
+        {
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: [
+              { type: "output_text", text: "逻辑函数：$\\sigma(z)=\\frac{1}{1+e^{-z}}$" },
+            ],
+          },
+        },
+      ],
+    });
+
+    const assistantMessages = items.filter(
+      (item): item is Extract<(typeof items)[number], { kind: "message" }> =>
+        item.kind === "message" && item.role === "assistant",
+    );
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]?.id).toBe("codex-assistant-2");
+    expect(assistantMessages[0]?.text).toContain("$\\sigma(z)=\\frac{1}{1+e^{-z}}$");
+  });
+
   it("keeps repeated assistant messages when they come from separate response_item events", () => {
     const items = parseCodexSessionHistory({
       entries: [

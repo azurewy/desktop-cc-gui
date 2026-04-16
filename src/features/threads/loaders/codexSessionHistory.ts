@@ -127,6 +127,14 @@ function normalizeComparableMessageText(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function normalizeComparableCodexMirrorMathText(value: string) {
+  return value
+    .replace(/\\+\(\s*([\s\S]*?)\s*\\+\)/g, (_match, inner: string) => `$${inner.trim()}$`)
+    .replace(/\\+\[\s*([\s\S]*?)\s*\\+\]/g, (_match, inner: string) => `$$${inner.trim()}$$`)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeComparableMessageImages(item: Extract<ConversationItem, { kind: "message" }>) {
   if (!Array.isArray(item.images) || item.images.length === 0) {
     return "";
@@ -163,11 +171,22 @@ function isAdjacentDuplicateMessage(
   }
   const existingText = normalizeComparableMessageText(existing.text);
   const incomingText = normalizeComparableMessageText(incoming.text);
-  if (!existingText || !incomingText || existingText !== incomingText) {
+  if (!existingText || !incomingText) {
     return false;
   }
   if (!isKnownCodexAssistantMirrorEventPair(existing, incoming)) {
     return false;
+  }
+  if (existingText !== incomingText) {
+    const normalizedExistingMath = normalizeComparableCodexMirrorMathText(existingText);
+    const normalizedIncomingMath = normalizeComparableCodexMirrorMathText(incomingText);
+    if (
+      !normalizedExistingMath ||
+      !normalizedIncomingMath ||
+      normalizedExistingMath !== normalizedIncomingMath
+    ) {
+      return false;
+    }
   }
   return (
     normalizeComparableMessageImages(existing) ===
@@ -175,9 +194,25 @@ function isAdjacentDuplicateMessage(
   );
 }
 
+function shouldPreferIncomingCodexMirrorMessage(
+  existing: Extract<ConversationItem, { kind: "message" }>,
+  incoming: Extract<ConversationItem, { kind: "message" }>,
+) {
+  const isExistingResponseItem = existing.id.startsWith("codex-assistant-");
+  const isIncomingResponseItem = incoming.id.startsWith("codex-assistant-");
+  return !isExistingResponseItem && isIncomingResponseItem;
+}
+
 function appendCodexHistoryItem(items: ConversationItem[], item: ConversationItem) {
   if (item.kind === "message") {
-    if (isAdjacentDuplicateMessage(items[items.length - 1], item)) {
+    const previous = items[items.length - 1];
+    if (
+      previous?.kind === "message" &&
+      isAdjacentDuplicateMessage(previous, item)
+    ) {
+      if (shouldPreferIncomingCodexMirrorMessage(previous, item)) {
+        items[items.length - 1] = item;
+      }
       return;
     }
     items.push(item);

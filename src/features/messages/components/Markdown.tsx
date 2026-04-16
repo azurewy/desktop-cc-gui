@@ -285,6 +285,33 @@ function hasSafeInlineLatexWrapperBoundary(source: string, startIndex: number) {
   );
 }
 
+function hasSafeDisplayLatexWrapperBoundary(source: string, endIndex: number) {
+  if (endIndex >= source.length - 1) {
+    return true;
+  }
+  const nextChar = source[endIndex + 1] ?? "";
+  return (
+    /\s/.test(nextChar) ||
+    /[)\]}>"'”’`>、，。！？；：,:;!?]/u.test(nextChar) ||
+    isCjkCharacter(nextChar)
+  );
+}
+
+function stripLeadingMarkdownLinePrefix(value: string) {
+  return value.replace(/^((?:[-*+]|>\s*|\d+\.)\s*)+/, "").trim();
+}
+
+function isInlineMathWrapperInProseContext(source: string, startIndex: number, endIndex: number) {
+  const lineStart = source.lastIndexOf("\n", startIndex - 1) + 1;
+  const lineEndCandidate = source.indexOf("\n", endIndex + 1);
+  const lineEnd = lineEndCandidate >= 0 ? lineEndCandidate : source.length;
+  const before = source.slice(lineStart, startIndex);
+  const after = source.slice(endIndex + 1, lineEnd);
+  const hasMeaningfulBefore = stripLeadingMarkdownLinePrefix(before).length > 0;
+  const hasMeaningfulAfter = after.trim().length > 0;
+  return hasMeaningfulBefore || hasMeaningfulAfter;
+}
+
 function looksLikeStandaloneLatexFormulaLine(value: string) {
   const trimmed = value.trim();
   if (!trimmed || startsWithMarkdownBlockSyntax(trimmed)) {
@@ -365,6 +392,113 @@ function extractSingleLineDisplayMathExpression(value: string) {
   return expression || null;
 }
 
+function hasUnescapedDollar(value: string) {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== "$") {
+      continue;
+    }
+    if (isUnescapedCharacter(value, index)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function normalizeMalformedDisplayMathSegments(value: string) {
+  if (!value.includes("$$")) {
+    return value;
+  }
+  let changed = false;
+  const normalized = value.replace(/\$\$([\s\S]*?)\$\$/g, (match, inner: string) => {
+    const expression = inner.trim();
+    if (!expression) {
+      return match;
+    }
+    // 容错：一些模型会把中文叙述和 $...$ 行内公式错误包进 $$...$$，会触发整段 katex-error。
+    // 这类段落降级为普通文本，保留内部 $...$ 让 remark-math 继续解析。
+    if (!/[\u3400-\u9fff]/u.test(expression) || !hasUnescapedDollar(expression)) {
+      return match;
+    }
+    changed = true;
+    return expression;
+  });
+  return changed ? normalized : value;
+}
+
+function normalizeInlineDisplayMathSegments(value: string) {
+  if (!value.includes("$$")) {
+    return value;
+  }
+  let changed = false;
+  const normalized = value.replace(
+    /\$\$([\s\S]*?)\$\$/g,
+    (match, inner: string, offset: number, source: string) => {
+      const expression = inner.trim();
+      if (!expression || /[\r\n]/.test(inner)) {
+        return match;
+      }
+      const endIndex = offset + match.length - 1;
+      if (!isInlineMathWrapperInProseContext(source, offset, endIndex)) {
+        return match;
+      }
+      changed = true;
+      return `$${expression}$`;
+    },
+  );
+  return changed ? normalized : value;
+}
+
+function normalizeLeadingLatexBeforeCjkProse(value: string) {
+  const lines = value.split(/\r?\n/);
+  let inDisplayMathBlock = false;
+  let changed = false;
+  const normalized = lines.flatMap((line) => {
+    const trimmed = line.trim();
+    const leadingWhitespace = line.match(/^\s*/)?.[0] ?? "";
+    if (trimmed === "$$") {
+      inDisplayMathBlock = !inDisplayMathBlock;
+      return [line];
+    }
+    if (!trimmed || inDisplayMathBlock) {
+      return [line];
+    }
+    if (startsWithMarkdownBlockSyntax(trimmed)) {
+      return [line];
+    }
+    if (!/\\[A-Za-z]/.test(trimmed)) {
+      return [line];
+    }
+    const cjkMatch = trimmed.match(/[\u3400-\u9fff]/u);
+    const cjkIndex = cjkMatch?.index ?? -1;
+    if (cjkIndex <= 0) {
+      return [line];
+    }
+    const mathCandidateRaw = trimmed.slice(0, cjkIndex).trimEnd();
+    const mathCandidate = mathCandidateRaw
+      .replace(/[，,；;：:.!?！？。]+$/u, "")
+      .trimEnd();
+    const proseRemainder = trimmed.slice(mathCandidateRaw.length).trimStart();
+    if (!mathCandidate || !proseRemainder) {
+      return [line];
+    }
+    if (
+      !looksLikeStandaloneLatexFormulaLine(mathCandidate) &&
+      !looksLikeInlineLatexExpression(mathCandidate) &&
+      !/[=<>]/.test(mathCandidate)
+    ) {
+      return [line];
+    }
+    changed = true;
+    return [
+      `${leadingWhitespace}$$`,
+      `${leadingWhitespace}${mathCandidate}`,
+      `${leadingWhitespace}$$`,
+      `${leadingWhitespace}${proseRemainder}`,
+    ];
+  });
+  return changed ? normalized.join("\n") : value;
+}
+
 function looksLikeExplicitInlineMathLine(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -372,7 +506,7 @@ function looksLikeExplicitInlineMathLine(value: string) {
   }
   return (
     extractSingleDollarInlineMath(trimmed, { allowTrailingPunctuation: true }) !== null ||
-    /^\\\([\s\S]*?\\\)[，。！？；：,.;:!?]?$/.test(trimmed)
+    /^\\+\([\s\S]*?\\+\)[，。！？；：,.;:!?]?$/.test(trimmed)
   );
 }
 
@@ -427,9 +561,19 @@ function normalizeStandaloneMathDisplayLines(value: string) {
 function normalizeCommonMathDelimiters(value: string) {
   let changed = false;
   let normalized = value.replace(
-    /\\\(\s*([^\n]*?)\s*\\\)/g,
-    (match, inner: string) => {
+    /(\\+)\(\s*([^\n]*?)\s*(\\+)\)/g,
+    (
+      match,
+      _openSlashes: string,
+      inner: string,
+      _closeSlashes: string,
+      offset: number,
+      source: string,
+    ) => {
       if (!looksLikeInlineLatexExpression(inner)) {
+        return match;
+      }
+      if (!hasSafeInlineLatexWrapperBoundary(source, offset)) {
         return match;
       }
       changed = true;
@@ -438,13 +582,30 @@ function normalizeCommonMathDelimiters(value: string) {
   );
 
   normalized = normalized.replace(
-    /\\\[\s*([\s\S]*?)\s*\\\]/g,
-    (match, inner: string) => {
+    /(\\+)\[\s*([\s\S]*?)\s*(\\+)\]/g,
+    (
+      match,
+      _openSlashes: string,
+      inner: string,
+      _closeSlashes: string,
+      offset: number,
+      source: string,
+    ) => {
       const expression = inner.trim();
       if (!looksLikeInlineLatexExpression(expression)) {
         return match;
       }
+      if (!hasSafeInlineLatexWrapperBoundary(source, offset)) {
+        return match;
+      }
+      const endIndex = offset + match.length - 1;
+      if (!hasSafeDisplayLatexWrapperBoundary(source, endIndex)) {
+        return match;
+      }
       changed = true;
+      if (isInlineMathWrapperInProseContext(source, offset, endIndex)) {
+        return `$${expression}$`;
+      }
       return `$$\n${expression}\n$$`;
     },
   );
@@ -1558,11 +1719,17 @@ export const Markdown = memo(function Markdown({
     const normalizeDisplayText = (text: string) =>
       normalizeImageTags(
         normalizeStandaloneMathDisplayLines(
-          normalizeCommonMathDelimiters(
-            normalizeFragmentedResourceReferences(
-              normalizeListIndentation(
-                normalizeInlineOrderedListBreaks(
-                  normalizeFragmentedLineBreaks(normalizeFragmentedParagraphBreaks(text)),
+          normalizeLeadingLatexBeforeCjkProse(
+            normalizeMalformedDisplayMathSegments(
+              normalizeInlineDisplayMathSegments(
+                normalizeCommonMathDelimiters(
+                  normalizeFragmentedResourceReferences(
+                    normalizeListIndentation(
+                      normalizeInlineOrderedListBreaks(
+                        normalizeFragmentedLineBreaks(normalizeFragmentedParagraphBreaks(text)),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
