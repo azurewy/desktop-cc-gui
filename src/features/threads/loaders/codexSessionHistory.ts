@@ -459,6 +459,24 @@ function buildAssistantMessageItem(payload: Record<string, unknown>, fallbackId:
   });
 }
 
+function extractCodexMessageId(
+  payload: Record<string, unknown>,
+  fallbackId: string,
+) {
+  for (const candidate of [
+    payload.id,
+    payload.uuid,
+    payload.message_id,
+    payload.messageId,
+  ]) {
+    const normalized = asString(candidate).trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return fallbackId;
+}
+
 function buildUserMessageItem(payload: Record<string, unknown>, fallbackId: string) {
   const text = asString(payload.message ?? payload.text ?? "").trim();
   if (!text) {
@@ -471,7 +489,7 @@ function buildUserMessageItem(payload: Record<string, unknown>, fallbackId: stri
     payload.selectedAgentIcon ?? payload.selected_agent_icon ?? "",
   ).trim();
   return buildConversationItem({
-    id: fallbackId,
+    id: extractCodexMessageId(payload, fallbackId),
     type: "userMessage",
     content: [{ type: "text", text }],
     ...(selectedAgentName ? { selectedAgentName } : {}),
