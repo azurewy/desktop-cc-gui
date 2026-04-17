@@ -301,3 +301,63 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Claude rollout plan-card fallback and approval detail cleanup
+
+**Date**: 2026-04-17
+**Task**: Claude rollout plan-card fallback and approval detail cleanup
+**Branch**: `feature/vvvv0.4.2-1`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 修复 Claude 计划模式卡片在标题漂移时未渲染的问题
+- 清理 approval detail 中无价值的大块 CONTENT/patch 正文展示
+- 补齐 V.4 手测矩阵与 E.1.c 非文件审批 bridge 评估文档
+
+主要改动:
+- 为 GenericToolBlock 增加更稳的 ExitPlanMode payload fallback，但将识别范围收窄到 Claude toolCall 且要求明确 plan payload 结构，避免误判普通 modeBlocked 文本
+- 为 ApprovalToasts 增加正文型字段过滤，隐藏 content/text/new_string/diff 等大块文件内容，保留路径/工具/说明等关键信息
+- 新增对应回归测试，覆盖 payload-only 计划卡片识别与 approval toast 不展示 CONTENT
+- 新增 OpenSpec 文档：Claude rollout V.4 手测矩阵、非文件审批 bridge 评估，并回挂到 rollout tasks
+
+涉及模块:
+- src/features/messages/components/toolBlocks/GenericToolBlock.tsx
+- src/features/messages/components/toolBlocks/GenericToolBlock.test.tsx
+- src/features/app/components/ApprovalToasts.tsx
+- src/features/app/components/ApprovalToasts.test.tsx
+- openspec/changes/claude-code-mode-progressive-rollout/tasks.md
+- openspec/docs/claude-mode-rollout-v4-manual-test-matrix-2026-04-17.md
+- openspec/docs/claude-mode-rollout-non-file-approval-bridge-evaluation-2026-04-17.md
+
+验证结果:
+- npx vitest run src/features/app/components/ApprovalToasts.test.tsx src/features/messages/components/toolBlocks/GenericToolBlock.test.tsx 通过（2 files, 28 tests）
+- 提交前复核了兼容性风险，并收窄了 ExitPlanMode payload fallback 的误判范围
+
+后续事项:
+- 用真实 Claude 线程再手测一次 exitplanmode 卡片和 approval detail UI，确认截图场景完全收口
+- 如后续仍发现 plan 卡片漏匹配，优先打印真实 item shape 而不是继续放宽 fallback 规则
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7999a1f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
