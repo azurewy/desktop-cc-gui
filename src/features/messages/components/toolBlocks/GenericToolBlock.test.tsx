@@ -156,6 +156,15 @@ const exitPlanModeBareClaudeVariantItem: Extract<ConversationItem, { kind: "tool
   status: "completed",
 };
 
+const exitPlanModeDecoratedClaudeVariantItem: Extract<ConversationItem, { kind: "tool" }> = {
+  id: "tool-8c",
+  kind: "tool",
+  toolType: "toolCall",
+  title: "Claude / exitplanmode (plan)",
+  detail: "PLAN\n# Decorated Variant Plan\n\n- step one",
+  status: "completed",
+};
+
 const exitPlanModeRichMarkdownItem: Extract<ConversationItem, { kind: "tool" }> = {
   id: "tool-9",
   kind: "tool",
@@ -526,6 +535,18 @@ describe("GenericToolBlock", () => {
     render(
       <GenericToolBlock
         item={exitPlanModeBareClaudeVariantItem}
+        isExpanded={false}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Execution Plan Ready")).toBeTruthy();
+  });
+
+  it("matches decorated claude exitplanmode title variants", () => {
+    render(
+      <GenericToolBlock
+        item={exitPlanModeDecoratedClaudeVariantItem}
         isExpanded={false}
         onToggle={vi.fn()}
       />,

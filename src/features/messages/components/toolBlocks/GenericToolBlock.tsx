@@ -165,6 +165,15 @@ function matchesNormalizedToolIdentifier(toolName: string, expected: string): bo
   );
 }
 
+function isExitPlanToolVariant(toolName: string, title: string): boolean {
+  const normalizedTitle = normalizeToolIdentifier(title);
+  return (
+    matchesNormalizedToolIdentifier(toolName, 'exitplanmode') ||
+    matchesNormalizedToolIdentifier(title, 'exitplanmode') ||
+    normalizedTitle.includes('exitplanmode')
+  );
+}
+
 /**
  * 根据工具名称获取 codicon 图标类名
  */
@@ -929,7 +938,7 @@ export const GenericToolBlock = memo(function GenericToolBlock({
   const hasChanges = (item.changes ?? []).length > 0;
   const status = getToolStatus(item, hasChanges);
   const summary = extractSummary(item, toolName);
-  const isExitPlanTool = matchesNormalizedToolIdentifier(toolName, 'exitplanmode');
+  const isExitPlanTool = isExitPlanToolVariant(toolName, item.title);
   const exitPlanContent = useMemo(
     () => (isExitPlanTool ? extractExitPlanCardContent(item) : null),
     [isExitPlanTool, item],
