@@ -60,6 +60,23 @@ Keep this managed block so 'trellis update' can refresh the instructions.
   3. 实现后同步更新 `.trellis/spec`
 - 对未安装 OpenSpec/Trellis CLI 的协作者：提交这些文件不会影响代码运行；但 PR 仍应注明关联的 OpenSpec change 与任务映射。
 
+## Trellis Session Record Gate
+
+- 当 AI 在本仓库完成一次代码或规范提交后，必须立即执行 Trellis session record，将本次交付写入当前 active developer 对应的 `.trellis/workspace/<developer>/`。
+- 记录时机：仅在 commit 已完成后执行；普通问答、方案讨论、未提交的中间态不写入 workspace，避免 journal 变成聊天流水账。
+- 适用范围：所有开发者 workspace 都遵守同一规则，包括 `.trellis/workspace/chenxiangning/` 与 `.trellis/workspace/zhukunpenglinyutong/`。
+- 前置检查：执行 record 前必须先运行 `python3 ./.trellis/scripts/get_context.py --mode record`。
+- 如果提示 `Not initialized`，必须先根据当前使用者初始化 developer，例如：
+  - `python3 ./.trellis/scripts/init_developer.py chenxiangning`
+  - `python3 ./.trellis/scripts/init_developer.py zhukunpenglinyutong`
+- 执行方式：
+  1. 获取刚完成的 commit hash、标题、主要改动与验证结果。
+  2. 运行 `python3 ./.trellis/scripts/add_session.py --stdin --title "..." --commit "<hash>"`。
+  3. stdin 内容必须包含：任务目标、主要改动、涉及模块、验证结果、后续事项。
+- `add_session.py` 会自动更新 `.trellis/workspace` 并提交 Trellis 元数据，因此一次业务提交后通常会跟随一个独立的 Trellis session 记录提交。
+- 如果用户明确要求“不记录 Trellis session”，则跳过记录，并在最终回复中说明。
+- 禁止把该流程放入 Git `post-commit` hook；该脚本会产生提交，hook 方案容易导致递归提交和低质量记录。
+
 ## PlanFirst 执行约束
 
 - 任何代码、配置、规范落盘前，先给出 `PLAN` 或等价的执行步骤。
