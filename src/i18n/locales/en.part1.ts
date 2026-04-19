@@ -879,6 +879,22 @@ const enPart1 = {
     projectSessionEngineOpencode: "OpenCode",
     sessionManagementDescription:
       "Manage real session history per project with paged loading, filtering, batch archive, unarchive, and deletion.",
+    sessionManagementModeProject: "Project view",
+    sessionManagementModeGlobal: "Global archive",
+    sessionManagementGlobalCodexOnly:
+      "Global history currently shows Codex sessions visible to this client.",
+    sessionManagementGlobalEmpty: "No global Codex history is currently visible.",
+    sessionManagementGlobalSectionTitle: "Global Codex history",
+    sessionManagementGlobalSectionDescription:
+      "This surface shows the full Codex history currently visible to this client.",
+    sessionManagementViewGlobalCta: "View global archive",
+    sessionManagementProjectEmptyStrictHint:
+      "This list only shows strict matches for the current project. Empty here does not mean this machine has no other visible history.",
+    sessionManagementStrictSectionTitle: "Strict project sessions",
+    sessionManagementRelatedSectionTitle: "Related history",
+    sessionManagementRelatedSectionDescription:
+      "These sessions are related to the current project, but they are not strict path matches.",
+    sessionManagementWorkspaceUnassigned: "Unassigned history",
     sessionManagementSearchPlaceholder: "Search by title, ID, or source...",
     sessionManagementEngineAll: "All engines",
     sessionManagementStatusActive: "Active only",
@@ -891,8 +907,18 @@ const enPart1 = {
     sessionManagementDeleteSuccess: "Deleted {{count}} sessions.",
     sessionManagementMutationPartial:
       "Processed {{succeeded}} sessions, {{failed}} failed. {{reason}}",
+    sessionManagementOwnerUnresolved:
+      "This session does not have a uniquely resolved owner workspace yet, so archive, unarchive, and delete are currently blocked.",
+    sessionManagementMissingMutationResult:
+      "The session mutation result was incomplete. Refresh and try again.",
     sessionManagementPartialSource: "Current result includes fallback source: {{source}}",
     sessionManagementBadgeArchived: "Archived",
+    sessionManagementBadgeRelated: "Inferred",
+    sessionManagementAttributionReasonWorktreeFamily: "Same worktree family",
+    sessionManagementAttributionReasonGitRoot: "Same git root",
+    sessionManagementAttributionReasonParentScope: "Matched parent project scope",
+    sessionManagementAttributionConfidenceHigh: "High confidence",
+    sessionManagementAttributionConfidenceMedium: "Medium confidence",
     sessionManagementLoadMore: "Load more",
     sessionManagementLoadingMore: "Loading more...",
     radarHistoryTitle: "Radar History Management",

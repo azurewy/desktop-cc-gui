@@ -890,6 +890,21 @@ const zhPart1 = {
     projectSessionEngineOpencode: "OpenCode",
     sessionManagementDescription:
       "按项目统一管理真实会话历史，支持分页读取、筛选、批量归档、取消归档与删除。",
+    sessionManagementModeProject: "项目视图",
+    sessionManagementModeGlobal: "全局归档",
+    sessionManagementGlobalCodexOnly:
+      "全局历史当前仅展示这个客户端可见的 Codex 会话。",
+    sessionManagementGlobalEmpty: "当前没有可见的全局 Codex 历史。",
+    sessionManagementGlobalSectionTitle: "全局 Codex 历史",
+    sessionManagementGlobalSectionDescription: "这里展示当前客户端本机可见的 Codex 历史全集。",
+    sessionManagementViewGlobalCta: "查看全局归档",
+    sessionManagementProjectEmptyStrictHint:
+      "这里显示的是当前项目 strict 命中的真实会话；为空不代表这台机器没有其他可见历史。",
+    sessionManagementStrictSectionTitle: "Strict 项目会话",
+    sessionManagementRelatedSectionTitle: "Related 历史",
+    sessionManagementRelatedSectionDescription:
+      "这些结果和当前项目有关，但不是 strict path 命中。",
+    sessionManagementWorkspaceUnassigned: "未归属历史",
     sessionManagementSearchPlaceholder: "搜索会话标题、ID 或来源…",
     sessionManagementEngineAll: "全部引擎",
     sessionManagementStatusActive: "仅显示活跃",
@@ -902,8 +917,17 @@ const zhPart1 = {
     sessionManagementDeleteSuccess: "已删除 {{count}} 条会话。",
     sessionManagementMutationPartial:
       "已处理 {{succeeded}} 条，{{failed}} 条失败。{{reason}}",
+    sessionManagementOwnerUnresolved:
+      "这条会话还没有解析出唯一归属项目，当前不能直接归档、取消归档或删除。",
+    sessionManagementMissingMutationResult: "会话治理结果不完整，请刷新后重试。",
     sessionManagementPartialSource: "当前结果包含降级来源：{{source}}",
     sessionManagementBadgeArchived: "已归档",
+    sessionManagementBadgeRelated: "推断相关",
+    sessionManagementAttributionReasonWorktreeFamily: "同 worktree family",
+    sessionManagementAttributionReasonGitRoot: "同 git root",
+    sessionManagementAttributionReasonParentScope: "命中父项目范围",
+    sessionManagementAttributionConfidenceHigh: "高置信",
+    sessionManagementAttributionConfidenceMedium: "中置信",
     sessionManagementLoadMore: "加载更多",
     sessionManagementLoadingMore: "加载更多中...",
     radarHistoryTitle: "雷达历史管理",
