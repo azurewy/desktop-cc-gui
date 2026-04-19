@@ -144,6 +144,7 @@ const THREAD_LIST_MAX_EMPTY_PAGES_WITH_ACTIVITY = 20;
 const THREAD_LIST_MAX_TOTAL_PAGES = 40;
 const THREAD_LIST_MAX_EMPTY_PAGES_LOAD_OLDER = 10;
 const THREAD_LIST_MAX_FETCH_DURATION_MS = 1_500;
+const THREAD_LIST_LIVE_REQUEST_TIMEOUT_MS = 1_600;
 const THREAD_RECOVERY_MAX_PAGES = 3;
 const THREAD_RECOVERY_MAX_FETCH_DURATION_MS = 800;
 const RELATED_THREAD_LOAD_CONCURRENCY = 2;
@@ -1720,7 +1721,7 @@ export function useThreadActions({
           pagesFetched += 1;
           let response: Record<string, unknown>;
           try {
-            response = (await (async () => {
+            const liveResponse = await withTimeout((async () => {
               try {
                 return await listThreadsService(workspace.id, cursor, pageSize);
               } catch (error) {
@@ -1737,7 +1738,22 @@ export function useThreadActions({
                 await connectWorkspaceService(workspace.id);
                 return await listThreadsService(workspace.id, cursor, pageSize);
               }
-            })()) as Record<string, unknown>;
+            })(), THREAD_LIST_LIVE_REQUEST_TIMEOUT_MS);
+            if (liveResponse === null) {
+              onDebug?.({
+                id: `${Date.now()}-client-thread-list-live-timeout`,
+                timestamp: Date.now(),
+                source: "error",
+                label: "thread/list live timeout",
+                payload: {
+                  workspaceId: workspace.id,
+                  cursor,
+                  timeoutMs: THREAD_LIST_LIVE_REQUEST_TIMEOUT_MS,
+                },
+              });
+              break;
+            }
+            response = liveResponse as Record<string, unknown>;
           } catch (error) {
             if (!isWorkspaceNotConnectedError(error)) {
               throw error;

@@ -93,6 +93,7 @@ describe("useThreadActions", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
     vi.mocked(listThreadTitles).mockResolvedValue({});
     vi.mocked(listGeminiSessions).mockResolvedValue([]);
     vi.mocked(getOpenCodeSessionList).mockResolvedValue([]);
@@ -838,6 +839,30 @@ describe("useThreadActions", () => {
         threadId: "thread-b",
       }),
     );
+  });
+
+  it("ends loading when live thread list times out during a non-preserved refresh", async () => {
+    vi.useFakeTimers();
+    vi.mocked(listThreads).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+
+    const { result, dispatch } = renderActions();
+
+    const refreshPromise = result.current.listThreadsForWorkspace(workspace);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await refreshPromise;
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setThreadListLoading",
+      workspaceId: "ws-1",
+      isLoading: true,
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setThreadListLoading",
+      workspaceId: "ws-1",
+      isLoading: false,
+    });
   });
 
   it("recovers stale unified OpenCode thread ids from refreshed native sessions", async () => {

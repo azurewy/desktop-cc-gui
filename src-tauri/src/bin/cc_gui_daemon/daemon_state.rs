@@ -5,6 +5,7 @@ mod git;
 
 const SESSION_HEALTH_PROBE_TIMEOUT_SECS: u64 = 3;
 const DELETE_ARCHIVE_TIMEOUT_MS: u64 = 2_000;
+const LIST_THREADS_LIVE_TIMEOUT_MS: u64 = 1_500;
 
 fn is_valid_claude_model_for_passthrough(model: &str) -> bool {
     let trimmed = model.trim();
@@ -1708,7 +1709,17 @@ impl DaemonState {
         cursor: Option<String>,
         limit: Option<u32>,
     ) -> Result<Value, String> {
-        codex_core::list_threads_core(&self.sessions, workspace_id, cursor, limit).await
+        tokio::time::timeout(
+            Duration::from_millis(LIST_THREADS_LIVE_TIMEOUT_MS),
+            codex_core::list_threads_core(&self.sessions, workspace_id, cursor, limit),
+        )
+        .await
+        .map_err(|_| {
+            format!(
+                "live thread/list timed out after {}ms",
+                LIST_THREADS_LIVE_TIMEOUT_MS
+            )
+        })?
     }
 
     pub(super) async fn opencode_session_list(

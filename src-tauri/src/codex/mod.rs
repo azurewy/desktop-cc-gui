@@ -38,6 +38,7 @@ use crate::types::{LocalUsageSessionSummary, WorkspaceEntry};
 pub(crate) use self::session_runtime::ensure_codex_session;
 
 const DELETE_ARCHIVE_TIMEOUT_MS: u64 = 2_000;
+const LIST_THREADS_LIVE_TIMEOUT_MS: u64 = 1_500;
 
 fn normalize_model_id(candidate: Option<String>) -> Option<String> {
     candidate
@@ -442,16 +443,19 @@ async fn load_all_live_codex_thread_entries(
 
     loop {
         pages_fetched += 1;
-        let response = match codex_core::list_threads_core(
-            &state.sessions,
-            workspace_id.to_string(),
-            cursor.clone(),
-            Some(UNIFIED_CODEX_PAGE_SIZE),
+        let response = match timeout(
+            Duration::from_millis(LIST_THREADS_LIVE_TIMEOUT_MS),
+            codex_core::list_threads_core(
+                &state.sessions,
+                workspace_id.to_string(),
+                cursor.clone(),
+                Some(UNIFIED_CODEX_PAGE_SIZE),
+            ),
         )
         .await
         {
-            Ok(response) => response,
-            Err(error) => {
+            Ok(Ok(response)) => response,
+            Ok(Err(error)) => {
                 if all_entries.is_empty() {
                     return Err(error);
                 }
@@ -460,6 +464,22 @@ async fn load_all_live_codex_thread_entries(
                     workspace_id,
                     pages_fetched.saturating_sub(1),
                     error
+                );
+                break;
+            }
+            Err(_) => {
+                let timeout_message = format!(
+                    "live thread/list timed out after {}ms",
+                    LIST_THREADS_LIVE_TIMEOUT_MS
+                );
+                if all_entries.is_empty() {
+                    return Err(timeout_message);
+                }
+                log::warn!(
+                    "[list_threads] Partial live Codex list for workspace {} after {} pages: {}",
+                    workspace_id,
+                    pages_fetched.saturating_sub(1),
+                    timeout_message
                 );
                 break;
             }

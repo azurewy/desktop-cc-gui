@@ -1370,7 +1370,10 @@ export function AppShell() {
   }, [activeWorkspaceId, ensureWorkspaceThreadListLoaded]);
   const handleEnsureWorkspaceThreadsForSettings = useCallback(
     (workspaceId: string) => {
-      ensureWorkspaceThreadListLoaded(workspaceId, { preserveState: true });
+      ensureWorkspaceThreadListLoaded(workspaceId, {
+        preserveState: false,
+        force: true,
+      });
     },
     [ensureWorkspaceThreadListLoaded],
   );
