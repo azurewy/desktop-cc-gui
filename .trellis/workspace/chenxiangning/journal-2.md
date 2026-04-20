@@ -1712,3 +1712,56 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 65: 归档已验证 OpenSpec 提案
+
+**Date**: 2026-04-21
+**Task**: 归档已验证 OpenSpec 提案
+**Branch**: `feature/f-v0.4.6`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标：
+- 将已验证完成的 OpenSpec 提案归档，并按本地 Conventional Commits 风格生成中文业务提交。
+
+主要改动：
+- 归档 workspace-session-catalog-projection-parity、global-session-history-archive-center、codex-config-flag-boundary-cleanup 三个已完成 change。
+- 通过 openspec archive 同步 delta specs 到 openspec/specs 主规格。
+- 新增 workspace-session-catalog-projection、global-session-history-archive-center、session-history-project-attribution 主规格。
+- 更新 workspace-session-management、workspace-sidebar-visual-harmony、codex-cross-source-history-unification、codex-chat-canvas-collaboration-mode、codex-collaboration-mode-runtime-enforcement、codex-external-config-runtime-reload 等规格。
+
+涉及模块：
+- openspec/changes/archive/**
+- openspec/specs/**
+
+验证结果：
+- openspec validate --all：131 passed, 0 failed。
+- openspec list --json：三个已归档 change 不再出现在 active change 列表。
+- git commit 成功：80445607 docs(openspec): 归档已验证提案并同步主规格。
+
+后续事项：
+- 当前工作区仍保留两个非本次提交改动：openspec/changes/harden-conversation-runtime-stability/tasks.md 与 src/styles/sidebar.css，未纳入本次业务提交。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `80445607` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
