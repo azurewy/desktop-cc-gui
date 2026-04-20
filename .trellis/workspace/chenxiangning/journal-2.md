@@ -484,3 +484,58 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 44: 设置页实验区入口与续写融合命名收敛
+
+**Date**: 2026-04-20
+**Task**: 设置页实验区入口与续写融合命名收敛
+**Branch**: `feature/vv0.4.4`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 调整设置页 Experimental 区域的可见性与文案语义，确保实验能力入口按需求隐藏，同时保留内部实现。
+- 对齐 steer 对应开关的用户可见命名，使其准确表达 same-run continuation、queued send、queue fusion 能力。
+
+主要改动:
+- 将设置页 sidebar 中的 Experimental 入口重新隐藏，恢复前端常量 gate，避免继续直接暴露实验区入口。
+- 保留 Experimental 区域内部实现，不回退已有开关逻辑，仅调整入口显示状态。
+- 将 steerMode 文案调整为“续写与融合 / Follow-up fusion”，并更新描述为回答生成中继续追问、排队、融合当前回复的真实语义。
+- 新增 Available / 已可用 标记，替换先前对 steer 能力过于保守的预览态表达。
+- 同步更新 SettingsView 测试与 vitest i18n mock，确保入口隐藏与文案渲染回归可验证。
+
+涉及模块:
+- 设置页入口 gate 与 Experimental 区域文案
+- 中英文 locale
+- SettingsView 定向测试夹具
+
+验证结果:
+- npx vitest run src/features/settings/components/SettingsView.test.tsx 通过（32 passed）
+
+后续事项:
+- 如后续需要再次开放 Experimental 入口，只需恢复 settingsViewConstants 中的 SHOW_EXPERIMENTAL_ENTRY。
+- 可继续评估“协作模式”对外命名是否也需要收敛为更贴近 Code / Plan 的用户语义。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0d5bc5a7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
