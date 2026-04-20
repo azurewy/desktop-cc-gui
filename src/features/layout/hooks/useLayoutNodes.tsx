@@ -228,6 +228,7 @@ type LayoutNodesOptions = {
   onSelectWorkspace: (workspaceId: string) => void;
   onConnectWorkspace: (workspace: WorkspaceInfo) => Promise<void>;
   onAddAgent: (workspace: WorkspaceInfo, engine?: EngineType) => Promise<void>;
+  engineOptions?: EngineDisplayInfo[];
   onAddSharedAgent: (workspace: WorkspaceInfo) => Promise<void>;
   onAddWorktreeAgent: (workspace: WorkspaceInfo) => Promise<void>;
   onAddCloneAgent: (workspace: WorkspaceInfo) => Promise<void>;
@@ -1099,6 +1100,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       onSelectWorkspace={options.onSelectWorkspace}
       onConnectWorkspace={options.onConnectWorkspace}
       onAddAgent={options.onAddAgent}
+      engineOptions={options.engineOptions}
       onAddSharedAgent={options.onAddSharedAgent}
       onAddWorktreeAgent={options.onAddWorktreeAgent}
       onAddCloneAgent={options.onAddCloneAgent}

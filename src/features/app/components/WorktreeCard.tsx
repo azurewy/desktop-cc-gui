@@ -114,7 +114,7 @@ export function WorktreeCard({
           {isDeleting ? (
             <div className="worktree-deleting" role="status" aria-live="polite">
               <span className="worktree-deleting-spinner" aria-hidden />
-              <span className="worktree-deleting-label">Deleting</span>
+              <span className="worktree-deleting-label">{t("common.deleting")}</span>
             </div>
           ) : (
             <>

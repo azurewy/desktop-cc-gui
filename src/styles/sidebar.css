@@ -1214,6 +1214,12 @@
   transition: background-color 0.16s ease, color 0.16s ease;
 }
 
+.sidebar-workspace-menu-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .sidebar-workspace-menu-item:hover,
 .sidebar-workspace-menu-item:focus-visible {
   background: var(--surface-hover);
@@ -1289,6 +1295,45 @@
   color: var(--text-faint, var(--text-muted));
   margin-left: 1px;
   font-weight: 520;
+}
+
+.sidebar-workspace-menu-item-refresh {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background-color 0.16s ease, color 0.16s ease, opacity 0.16s ease;
+}
+
+.sidebar-workspace-menu-item-refresh:hover,
+.sidebar-workspace-menu-item-refresh:focus-visible {
+  background: var(--surface-hover);
+  color: var(--text-strong);
+}
+
+.sidebar-workspace-menu-item-refresh:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.sidebar-workspace-menu-item-refresh.is-refreshing svg {
+  animation: sidebar-workspace-menu-spin 0.85s linear infinite;
+}
+
+@keyframes sidebar-workspace-menu-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Market Rail */

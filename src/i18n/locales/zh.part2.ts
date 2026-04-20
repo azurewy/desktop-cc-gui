@@ -10,6 +10,16 @@ const zhPart2 = {
     addWorkspaceOpenModePrompt: "选择工作区打开方式。",
     addWorkspaceOpenCurrent: "加入当前窗口",
     addWorkspaceOpenNewWindow: "新开窗口",
+    loadingProgressRunInBackground: "后台运行",
+    loadingProgressCreateSessionTitle: "正在创建会话...",
+    loadingProgressCreateSessionMessage:
+      "正在为 {{workspace}} 准备 {{engine}} 会话。",
+    loadingProgressAddProjectTitle: "正在添加项目...",
+    loadingProgressAddProjectMessage:
+      "正在把 {{project}} 加入当前窗口。",
+    loadingProgressOpenProjectTitle: "正在打开项目...",
+    loadingProgressOpenProjectMessage:
+      "正在把 {{project}} 打开到新窗口。",
     delete: "删除工作区",
     deleteWorktree: "删除工作树",
     confirmDelete: "确定要删除此工作区吗？",
@@ -51,6 +61,8 @@ const zhPart2 = {
     engineCodex: "Codex",
     engineGemini: "Gemini",
     engineOpenCode: "OpenCode",
+    engineStatusLoading: "检测中...",
+    engineStatusRequiresLogin: "需先登录",
     engineComingSoon: "即将支持",
     startConversation: "新建会话",
     startSharedConversation: "Claude Code + Codex",

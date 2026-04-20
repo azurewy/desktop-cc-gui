@@ -25,6 +25,7 @@ import { isDefaultWorkspacePath } from "../../workspaces/utils/defaultWorkspace"
 import { formatShortcutForPlatform, isMacPlatform } from "../../../utils/shortcuts";
 import { formatRelativeTimeShort } from "../../../utils/time";
 import { EngineIcon } from "../../engine/components/EngineIcon";
+import type { EngineDisplayInfo } from "../../engine/hooks/useEngineController";
 import { TooltipIconButton } from "../../../components/ui/tooltip-icon-button";
 import { SharedSessionIcon } from "../../shared-session/components/SharedSessionIcon";
 import { pushErrorToast } from "../../../services/toasts";
@@ -92,6 +93,7 @@ type SidebarProps = {
   onSelectWorkspace: (id: string) => void;
   onConnectWorkspace: (workspace: WorkspaceInfo) => void;
   onAddAgent: (workspace: WorkspaceInfo, engine?: EngineType) => void;
+  engineOptions?: EngineDisplayInfo[];
   onAddSharedAgent?: (workspace: WorkspaceInfo) => void;
   onAddWorktreeAgent: (workspace: WorkspaceInfo) => void;
   onAddCloneAgent: (workspace: WorkspaceInfo) => void;
@@ -169,6 +171,7 @@ export function Sidebar({
   onSelectWorkspace,
   onConnectWorkspace,
   onAddAgent,
+  engineOptions = [],
   onAddSharedAgent,
   onAddWorktreeAgent,
   onAddCloneAgent,
@@ -264,6 +267,7 @@ export function Sidebar({
   } =
     useSidebarMenus({
       onAddAgent,
+      engineOptions,
       onAddSharedAgent,
       onDeleteThread,
       onSyncThread,
@@ -1240,40 +1244,58 @@ export function Sidebar({
                   {group.label}
                 </div>
                 {group.actions.map((action) => (
-                  <button
-                    key={action.id}
-                    type="button"
-                    role="menuitem"
-                    className={`sidebar-workspace-menu-item${
-                      action.tone === "danger" ? " is-danger" : ""
-                    }${action.deprecated ? " is-deprecated" : ""}${
-                      action.unavailable ? " is-unavailable" : ""
-                    }`}
-                    disabled={action.unavailable}
-                    onClick={() => onWorkspaceMenuAction(action)}
-                  >
-                    <span
-                      className={`sidebar-workspace-menu-item-icon sidebar-workspace-menu-item-icon-${action.iconKind}${
+                  <div className="sidebar-workspace-menu-item-row" key={action.id}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={`sidebar-workspace-menu-item${
+                        action.tone === "danger" ? " is-danger" : ""
+                      }${action.deprecated ? " is-deprecated" : ""}${
                         action.unavailable ? " is-unavailable" : ""
                       }`}
-                      aria-hidden
+                      disabled={action.unavailable}
+                      onClick={() => onWorkspaceMenuAction(action)}
                     >
-                      {renderWorkspaceMenuIcon(action.iconKind)}
-                    </span>
-                    <span className="sidebar-workspace-menu-item-label">
-                      {action.label}
-                    </span>
-                    {action.deprecated ? (
-                      <span className="sidebar-workspace-menu-item-deprecated">
-                        ({t("sidebar.deprecatedTag")})
+                      <span
+                        className={`sidebar-workspace-menu-item-icon sidebar-workspace-menu-item-icon-${action.iconKind}${
+                          action.unavailable ? " is-unavailable" : ""
+                        }`}
+                        aria-hidden
+                      >
+                        {renderWorkspaceMenuIcon(action.iconKind)}
                       </span>
-                    ) : null}
-                    {action.unavailable ? (
-                      <span className="sidebar-workspace-menu-item-unavailable">
-                        ({t("sidebar.unavailableTag")})
+                      <span className="sidebar-workspace-menu-item-label">
+                        {action.label}
                       </span>
+                      {action.deprecated ? (
+                        <span className="sidebar-workspace-menu-item-deprecated">
+                          ({t("sidebar.deprecatedTag")})
+                        </span>
+                      ) : null}
+                      {action.unavailable ? (
+                        <span className="sidebar-workspace-menu-item-unavailable">
+                          （{action.statusLabel ?? t("sidebar.unavailableTag")}）
+                        </span>
+                      ) : null}
+                    </button>
+                    {action.refreshable ? (
+                      <button
+                        type="button"
+                        className={`sidebar-workspace-menu-item-refresh${
+                          action.refreshing ? " is-refreshing" : ""
+                        }`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void action.onRefresh?.();
+                        }}
+                        aria-label={t("common.refresh")}
+                        title={t("common.refresh")}
+                        disabled={action.refreshing}
+                      >
+                        <RefreshCw size={13} aria-hidden />
+                      </button>
                     ) : null}
-                  </button>
+                  </div>
                 ))}
                 {groupIndex < workspaceMenuState.groups.length - 1 ? (
                   <div className="sidebar-workspace-menu-divider" aria-hidden />

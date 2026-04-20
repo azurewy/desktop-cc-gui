@@ -75,6 +75,7 @@ import { useSessionRadarFeed } from "./features/session-activity/hooks/useSessio
 import { useLiveEditPreview } from "./features/live-edit-preview/hooks/useLiveEditPreview";
 import { useGitHubPanelController } from "./features/app/hooks/useGitHubPanelController";
 import { useSettingsModalState } from "./features/app/hooks/useSettingsModalState";
+import { useLoadingProgressDialogState } from "./features/app/hooks/useLoadingProgressDialogState";
 import { usePersistComposerSettings } from "./features/app/hooks/usePersistComposerSettings";
 import { useSyncSelectedDiffPath } from "./features/app/hooks/useSyncSelectedDiffPath";
 import { useMenuAcceleratorController } from "./features/app/hooks/useMenuAcceleratorController";
@@ -372,6 +373,12 @@ export function AppShell() {
     openSettings,
     closeSettings,
   } = useSettingsModalState();
+  const {
+    loadingProgressDialog,
+    showLoadingProgressDialog,
+    hideLoadingProgressDialog,
+    dismissLoadingProgressDialog,
+  } = useLoadingProgressDialogState();
 
   const handleOpenModelSettings = useCallback(
     (providerId?: string) => {
@@ -677,6 +684,7 @@ export function AppShell() {
   const { skills } = useSkills({ activeWorkspace, onDebug: addDebugEntry });
   const {
     activeEngine,
+    availableEngines,
     installedEngines,
     setActiveEngine,
     engineModelsAsOptions,
@@ -2615,6 +2623,8 @@ export function AppShell() {
     openWorktreePrompt,
     openClonePrompt,
     composerInputRef,
+    showLoadingProgressDialog,
+    hideLoadingProgressDialog,
     onDebug: addDebugEntry,
   });
 
@@ -2804,7 +2814,7 @@ export function AppShell() {
     handleSync, handleTestNotificationSound, handleToggleDictation, handleToggleRuntimeConsole, handleToggleTerminal, handleToggleTerminalPanel, handleUnlockPanel, handleUnstageGitFile,
     handleUpdatePrompt, handleUserInputSubmit, handleUserInputSubmitWithPlanApply, handleExitPlanModeExecute, handleWorkspaceDragEnter, handleWorkspaceDragLeave, handleWorkspaceDragOver, handleWorkspaceDrop, handleWorktreeCreated,
     hasActivePlan, hasLoaded, hasPlanData, highlightedBranchIndex, highlightedCommitIndex, highlightedPresetIndex, historySearchItems, hydratedThreadListWorkspaceIdsRef,
-    installedEngines, interruptTurn, isCompact, isDeleteThreadPromptBusy, isEditorFileMaximized, isFilesLoading, isLoadingLatestAgents, isMacDesktop,
+    availableEngines, installedEngines, interruptTurn, isCompact, isDeleteThreadPromptBusy, isEditorFileMaximized, isFilesLoading, isLoadingLatestAgents, isMacDesktop,
     isPanelLocked, isPhone, isPlanMode, isPlanPanelDismissed, isProcessing, isProcessingNow, isReviewing, isSearchPaletteOpen,
     isTablet, isThreadAutoNaming, isThreadPinned, isValid, isWindowsDesktop, isWorkspaceDropActive, isWorktreeWorkspace, kanbanConversationWidth,
     kanbanCreatePanel, kanbanCreateTask, kanbanDeletePanel, kanbanDeleteTask, kanbanPanels, kanbanReorderTask, kanbanTasks, kanbanUpdatePanel,
@@ -2836,7 +2846,7 @@ export function AppShell() {
     setGitPanelMode, setGitRootScanDepth, setGlobalSearchFilesByWorkspace, setHighlightedBranchIndex, setHighlightedCommitIndex, setHighlightedPresetIndex, setIsEditorFileMaximized, setIsPanelLocked,
     setIsPlanPanelDismissed, setIsSearchPaletteOpen, setKanbanViewState, setLiveEditPreviewEnabled, setPrefillDraft, setReduceTransparency, setRightPanelWidth, setSearchContentFilters, setSearchPaletteQuery, setSearchPaletteSelectedIndex, setSearchScope,
     setSelectedCollaborationModeId, setSelectedCommitSha, setSelectedDiffPath, setSelectedEffort, setSelectedKanbanTaskId, setSelectedModelId, setSelectedPullRequest,
-    setHomeOpen, setWorkspaceHomeWorkspaceId, settingsHighlightTarget, settingsOpen, settingsSection, shouldForceResumeInCode, shouldImplementPlan, shouldLoadDiffs, shouldLoadGitHubPanelData,
+    setHomeOpen, setWorkspaceHomeWorkspaceId, settingsHighlightTarget, settingsOpen, settingsSection, loadingProgressDialog, dismissLoadingProgressDialog, shouldForceResumeInCode, shouldImplementPlan, shouldLoadDiffs, shouldLoadGitHubPanelData,
     showDebugButton, showGitHistory, showHome, showKanban, showNextReleaseNotes, showPresetStep, showPreviousReleaseNotes, showWorkspaceHome,
     sidebarCollapsed, sidebarWidth, skills, snapshot, startExport, startFast, startFork, startHeight,
     startImport, startLsp, startMcp, startMode, startResume, startReview, startShare, startSpecRoot,

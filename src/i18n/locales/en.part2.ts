@@ -10,6 +10,16 @@ const enPart2 = {
     addWorkspaceOpenModePrompt: "Choose how to open this workspace.",
     addWorkspaceOpenCurrent: "Add to Current Window",
     addWorkspaceOpenNewWindow: "Open in New Window",
+    loadingProgressRunInBackground: "Run in background",
+    loadingProgressCreateSessionTitle: "Creating session...",
+    loadingProgressCreateSessionMessage:
+      "Preparing a {{engine}} session for {{workspace}}.",
+    loadingProgressAddProjectTitle: "Adding project...",
+    loadingProgressAddProjectMessage:
+      "Adding {{project}} to the current window.",
+    loadingProgressOpenProjectTitle: "Opening project...",
+    loadingProgressOpenProjectMessage:
+      "Opening {{project}} in a new window.",
     delete: "Delete Workspace",
     deleteWorktree: "Delete Worktree",
     confirmDelete: "Are you sure you want to delete this workspace?",
@@ -51,6 +61,8 @@ const enPart2 = {
     engineCodex: "Codex",
     engineGemini: "Gemini",
     engineOpenCode: "OpenCode",
+    engineStatusLoading: "Checking...",
+    engineStatusRequiresLogin: "Sign in required",
     engineComingSoon: "Coming soon",
     startConversation: "Start conversation",
     startSharedConversation: "Claude Code + Codex",
