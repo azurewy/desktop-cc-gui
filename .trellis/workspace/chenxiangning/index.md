@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 73
+- **Total Sessions**: 74
 - **Last Active**: 2026-04-21
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~320 | Active |
+| `journal-3.md` | ~375 | Active |
 | `journal-2.md` | ~1960 | Archived |
 | `journal-1.md` | ~1990 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 74 | 2026-04-21 | 归档历史用户气泡吸顶变更 | `b1623543` | `feature/f-v0.4.6` |
 | 73 | 2026-04-21 | 修复历史吸顶长气泡重叠问题 | `e73ebbd5` | `feature/f-v0.4.6` |
 | 72 | 2026-04-21 | Windows Claude 流式输出逐字变慢修复 | `41aba520` | `feature/f-v0.4.6` |
 | 71 | 2026-04-21 | 支持历史幕布按分段吸顶用户问题 | `be4384f23fef61ee5903a24492fe8214575aeaf7` | `feature/f-v0.4.6` |

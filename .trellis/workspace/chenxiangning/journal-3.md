@@ -318,3 +318,58 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 74: 归档历史用户气泡吸顶变更
+
+**Date**: 2026-04-21
+**Task**: 归档历史用户气泡吸顶变更
+**Branch**: `feature/f-v0.4.6`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 归档已完成的 OpenSpec change pin-history-user-question-bubble。
+- 将历史用户气泡吸顶能力同步到主 specs，并保留 archive 下的 proposal/design/tasks/spec 追溯材料。
+
+主要改动:
+- 执行 openspec archive pin-history-user-question-bubble -y。
+- 将 change 目录迁移到 openspec/changes/archive/2026-04-21-pin-history-user-question-bubble。
+- 新增主规范 openspec/specs/conversation-history-user-bubble-pinning/spec.md。
+- 保留 archive 下的 .openspec.yaml、proposal、design、tasks 与 delta spec，便于后续查阅实现决策。
+
+涉及模块:
+- openspec/specs/conversation-history-user-bubble-pinning/spec.md
+- openspec/changes/archive/2026-04-21-pin-history-user-question-bubble/**
+
+验证结果:
+- openspec archive pin-history-user-question-bubble -y 执行成功
+- openspec validate conversation-history-user-bubble-pinning --type spec 通过
+- git diff --check -- openspec/specs/conversation-history-user-bubble-pinning openspec/changes/archive/2026-04-21-pin-history-user-question-bubble openspec/changes/pin-history-user-question-bubble 通过
+
+后续事项:
+- 如需进一步收口，可考虑同步更新与该 capability 相关的 Trellis task 状态说明。
+- 当前工作区仍有大量与本次归档无关的未提交改动，本次归档提交未包含这些内容。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b1623543` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
