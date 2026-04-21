@@ -1262,3 +1262,62 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 90: 拆分 messages 时间线渲染层并瘦身主组件
+
+**Date**: 2026-04-21
+**Task**: 拆分 messages 时间线渲染层并瘦身主组件
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标
+- 对 src/features/messages/components/Messages.tsx 做纯结构瘦身，降低主文件体积，提升可维护性。
+- 控制改动边界，只做模块切割，不改变消息展示行为、DOM contract 和 runtime contract。
+
+主要改动
+- 从 Messages.tsx 中抽离 row 级展示组件到 src/features/messages/components/MessagesRows.tsx。
+- 从 Messages.tsx 中抽离 timeline 渲染编排到 src/features/messages/components/MessagesTimeline.tsx。
+- 从 Messages.tsx 中抽离纯 helper 到 src/features/messages/components/messagesRenderUtils.ts。
+- 让 Messages.tsx 回归 orchestration/container 角色，保留 state、refs、effects、visible items derive 与外层 shell。
+
+涉及模块
+- src/features/messages/components/Messages.tsx
+- src/features/messages/components/MessagesRows.tsx
+- src/features/messages/components/MessagesTimeline.tsx
+- src/features/messages/components/messagesRenderUtils.ts
+
+验证结果
+- npx eslint src/features/messages/components/Messages.tsx src/features/messages/components/MessagesTimeline.tsx src/features/messages/components/MessagesRows.tsx src/features/messages/components/messagesRenderUtils.ts
+- npm run typecheck
+- npx vitest run src/features/messages/components/Messages.test.tsx src/features/messages/components/Messages.live-behavior.test.tsx src/features/messages/components/Messages.windows-render-mitigation.test.tsx
+- npm run check:large-files
+- 结果：消息相关 101 条测试通过，large-file threshold 检查通过，Messages.tsx 从 2944 行降到 1564 行。
+
+后续事项
+- 可继续收敛 MessagesTimeline.tsx 的 prop surface，降低后续维护时的漏传风险。
+- 如后续处理 issue #389，可在当前拆分后的结构上补 scroll restoration 回归修复，风险会更低。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `36049224b002c0bf9d0488912cdc435d69300508` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
