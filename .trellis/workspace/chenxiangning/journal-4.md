@@ -1639,3 +1639,60 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 131: 收敛 git-history 第二批 exhaustive-deps 告警
+
+**Date**: 2026-04-23
+**Task**: 收敛 git-history 第二批 exhaustive-deps 告警
+**Branch**: `feature/v-0.4.8`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 继续执行 OpenSpec change `stabilize-git-history-exhaustive-deps-hotspot`，完成 P1 的 create-pr preview 与 push/pull/sync preview warning 修复。
+
+主要改动:
+- 将 change tasks 从“仅排 P1”扩展为可执行的 P1 remediation tasks。
+- 在 `useGitHistoryPanelInteractions.tsx` 中补全 create-pr preview loader、preview details effect、dialog open/close、workflow stages 的依赖数组。
+- 补全 pull/sync/fetch/refresh/push dialog bootstrap、preview loader、preview details effect、confirm handlers 的依赖数组。
+- 保持 P2 的 diff/menu/resize/commit action warning 继续 deferred。
+
+涉及模块:
+- src/features/git-history/components/git-history-panel/hooks/useGitHistoryPanelInteractions.tsx
+- openspec/changes/stabilize-git-history-exhaustive-deps-hotspot/tasks.md
+- .trellis/tasks/04-23-stabilize-git-history-exhaustive-deps-hotspot/prd.md
+
+验证结果:
+- 目标文件 `react-hooks/exhaustive-deps` warning: 47 -> 24
+- 仓库总 warning: 72 -> 49
+- `npm run lint` 通过（0 errors, 49 warnings）
+- `npm run typecheck` 通过
+- `npx vitest run src/features/git-history/components/GitHistoryPanel.test.tsx src/features/git-history/components/git-history-panel/components/GitHistoryPanelPickers.test.tsx` 通过（34 tests）
+
+后续事项:
+- 下一批只剩 P2：branch diff loaders、commit actions、context menu、resize interactions。
+- 当前 change 在完成 P2 前不要归档。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3479d297` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
