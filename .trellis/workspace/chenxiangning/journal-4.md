@@ -706,3 +706,60 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 115: 修复 codex 最终消息 markdown 结构块重复
+
+**Date**: 2026-04-22
+**Task**: 修复 codex 最终消息 markdown 结构块重复
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标
+- 修复 codex assistant 最终消息在 completed 阶段仍会出现整块重复的问题，重点覆盖“说明段 + 过渡句 + markdown list + 收尾句”这类结构化文本。
+
+主要改动
+- 扩展 `src/utils/assistantDuplicateParagraphs.ts` 的切分策略，从纯 paragraph 级去重升级为 paragraph + markdown section block 去重。
+- 为 list / quote / heading / ordered list / table 结构行增加独立 block 识别。
+- 为以句号、问号、感叹号、冒号结尾的独立行增加单独成块能力，避免单换行拼接时把两份重复内容错并到一个大段里。
+- 新增 reducer 级回归测试，覆盖“单换行分隔的重复 markdown section” completed merge。
+- 新增 integration 级回归测试，覆盖 append delta -> completeAgentMessage -> upsertItem 全链路最终只保留一份文本。
+
+涉及模块
+- `src/utils/assistantDuplicateParagraphs.ts`
+- `src/features/threads/hooks/threadReducerTextMerge.test.ts`
+- `src/features/threads/hooks/useThreadsReducer.completed-duplicate.test.ts`
+
+验证结果
+- `npm exec vitest run src/features/threads/hooks/threadReducerTextMerge.test.ts src/features/threads/hooks/useThreadsReducer.completed-duplicate.test.ts`
+- `npm run check:large-files`
+- `npm exec eslint src/utils/assistantDuplicateParagraphs.ts src/features/threads/hooks/threadReducerTextMerge.test.ts src/features/threads/hooks/useThreadsReducer.completed-duplicate.test.ts`
+- `npm run typecheck`
+
+后续事项
+- 继续观察真实 codex 会话里是否还有其它未覆盖的重复形态，例如 code fence、table、quote 混排后的 completed payload 双份。
+- 如果线上再出现新样式，优先补最小失败用例，再扩展统一 helper，避免把逻辑重新散落回 `threadItems.ts`。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c3b99dba` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
