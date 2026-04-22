@@ -1,4 +1,7 @@
 const PARAGRAPH_BREAK_SPLIT_REGEX = /\r?\n[^\S\r\n]*\r?\n+/;
+const MARKDOWN_STRUCTURE_LINE_REGEX =
+  /^(?:[-*+]\s|>\s?|#{1,6}\s|\d+\.\s|\|)/;
+const STANDALONE_LINE_END_REGEX = /[。！？!?：:]$/;
 
 function compactComparableText(value: string) {
   return value
@@ -9,10 +12,50 @@ function compactComparableText(value: string) {
     .replace(/[。．.]/g, ".");
 }
 
+function flushBlock(target: string[], lines: string[]) {
+  const block = lines.join("\n").trim();
+  if (block) {
+    target.push(block);
+  }
+  lines.length = 0;
+}
+
+function splitParagraphIntoBlocks(paragraph: string) {
+  const lines = paragraph
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (lines.length <= 1) {
+    return lines;
+  }
+
+  const blocks: string[] = [];
+  const currentNormal: string[] = [];
+  const currentStructured: string[] = [];
+
+  for (const line of lines) {
+    if (MARKDOWN_STRUCTURE_LINE_REGEX.test(line)) {
+      flushBlock(blocks, currentNormal);
+      currentStructured.push(line);
+      continue;
+    }
+
+    flushBlock(blocks, currentStructured);
+    currentNormal.push(line);
+    if (STANDALONE_LINE_END_REGEX.test(line)) {
+      flushBlock(blocks, currentNormal);
+    }
+  }
+
+  flushBlock(blocks, currentStructured);
+  flushBlock(blocks, currentNormal);
+  return blocks;
+}
+
 function splitParagraphs(value: string) {
   return value
     .split(PARAGRAPH_BREAK_SPLIT_REGEX)
-    .map((entry) => entry.trim())
+    .flatMap((entry) => splitParagraphIntoBlocks(entry.trim()))
     .filter(Boolean);
 }
 
