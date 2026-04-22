@@ -537,3 +537,51 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 112: 更新 v0.4.7 发布说明
+
+**Date**: 2026-04-22
+**Task**: 更新 v0.4.7 发布说明
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标：补充 v0.4.7 的中英文发布说明，确保版本文档对齐已完成的用户可见能力与修复项。
+
+主要改动：
+- 在 CHANGELOG.md 中新增 2026-04-22（v0.4.7）版本条目。
+- 汇总 runtime notice、恢复承接、fusion continuity、sticky 对齐与跨平台渲染稳定性等本轮功能、改进与修复。
+- 同步维护中英文内容，保持版本说明可直接用于发布或内部对齐。
+
+涉及模块：
+- CHANGELOG.md
+
+验证结果：
+- 文档更新未涉及代码执行；本次回合未额外运行测试命令。
+
+后续事项：
+- 后续发布前可结合实际发版范围再做一次措辞核对，确保 release notes 与最终归档变更保持一致。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0db213e2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
