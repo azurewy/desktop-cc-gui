@@ -490,3 +490,50 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 111: 补充 markdown code region 回归测试
+
+**Date**: 2026-04-22
+**Task**: 补充 markdown code region 回归测试
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标：为 markdown code region 文本归一化补一条边界回归，防止 token-shaped 普通文本在 inline code 外部被错误处理。
+
+主要改动：
+- 新增 normalizeOutsideMarkdownCode 回归测试。
+- 覆盖普通文本中出现 CCGUIINLINECODETOKEN 形态字符串时，替换逻辑仍应只处理目标文本本身，不误伤 token-like 字面量。
+
+涉及模块：
+- src/utils/markdownCodeRegions.test.ts
+
+验证结果：
+- 本次回合未单独执行测试命令；提交内容为新增 Vitest 回归用例。
+
+后续事项：
+- 如后续继续重构 markdown 渲染或 code region 归一化逻辑，可将该用例纳入 targeted test 集合做快速回归。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0588973a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
