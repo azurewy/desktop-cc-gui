@@ -585,3 +585,66 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 113: 收口 inline code 去重作用域并补齐重复渲染回归
+
+**Date**: 2026-04-22
+**Task**: 收口 inline code 去重作用域并补齐重复渲染回归
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标
+- 修复 assistant 文本在“整段重复且含多个 inline code span”时的重复渲染问题。
+- 将风险收口到 assistant 去重链路，避免影响历史/普通 markdown 渲染。
+- 控制测试文件继续逼近 3000 行 large-file 阈值的风险。
+
+主要改动
+- 为 markdownCodeRegions 增加专用的 stable inline region API，保留通用 helper 原始语义。
+- 将 assistant message normalization 切换为专用 stable inline region 去重链路。
+- 新增 markdownCodeRegions、threadItems、useThreadsReducer inline-code 定向回归测试。
+- 将新增 reducer 用例拆到独立测试文件，降低 useThreadsReducer.test.ts 体量增长风险。
+
+涉及模块
+- src/utils/markdownCodeRegions.ts
+- src/utils/threadItems.ts
+- src/utils/markdownCodeRegions.test.ts
+- src/utils/threadItems.test.ts
+- src/features/threads/hooks/useThreadsReducer.inline-code.test.ts
+
+验证结果
+- npm exec vitest run src/utils/markdownCodeRegions.test.ts src/utils/threadItems.test.ts src/features/threads/hooks/useThreadsReducer.inline-code.test.ts src/features/threads/hooks/useThreadsReducer.test.ts src/features/messages/components/Messages.test.tsx
+  - 5 个测试文件通过，247 个测试通过。
+- npm run check:large-files:near-threshold
+  - 通过；useThreadsReducer.test.ts 从 2990 行回落到 2961 行，仍处于 near-threshold watch。
+- npm run lint
+  - 无 error；保留仓库现有 109 个 warning，未新增当前改动相关 warning。
+- npm run typecheck
+  - 本轮等待窗口内未返回失败结果；未将其标记为通过。
+
+后续事项
+- 若用户继续反馈历史消息仍有重复，需要抓取具体 ConversationItem 原始文本做最小复现并补真实样本回归。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3600b38d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
