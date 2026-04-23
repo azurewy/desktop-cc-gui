@@ -10,6 +10,16 @@ const ENVIRONMENT_WARNING_PATTERNS = [
   /Unknown user config "electron_mirror"/,
   /Unknown env config "electron-mirror"/,
 ];
+const ENVIRONMENT_WARNING_HINTS = [
+  {
+    keys: ["npm_config_electron_mirror"],
+    warning: 'npm warn Unknown user config "electron_mirror". This will stop working in the next major version of npm.',
+  },
+  {
+    keys: ["npm_config_electron-mirror"],
+    warning: 'npm warn Unknown env config "electron-mirror". This will stop working in the next major version of npm.',
+  },
+];
 
 const ACT_WARNING_PATTERNS = [/not wrapped in act/, /The current testing environment is not configured to support act/];
 const RUNNER_PREFIXES = [
@@ -98,7 +108,25 @@ function shouldIgnorePayloadLine(line) {
   return false;
 }
 
-export function analyzeHeavyTestNoise(logText) {
+function detectEnvironmentOwnedWarningsFromEnv(env = process.env) {
+  const warnings = [];
+
+  for (const hint of ENVIRONMENT_WARNING_HINTS) {
+    if (
+      hint.keys.some((key) => {
+        const value = env[key];
+        return typeof value === "string" && value.trim().length > 0;
+      })
+    ) {
+      warnings.push(hint.warning);
+    }
+  }
+
+  return warnings;
+}
+
+export function analyzeHeavyTestNoise(logText, options = {}) {
+  const environmentWarnings = new Set(detectEnvironmentOwnedWarningsFromEnv(options.env));
   const report = {
     environmentWarnings: [],
     actWarnings: [],
@@ -112,7 +140,7 @@ export function analyzeHeavyTestNoise(logText) {
 
   for (const line of lines) {
     if (matchesAnyPattern(line, ENVIRONMENT_WARNING_PATTERNS)) {
-      report.environmentWarnings.push(line);
+      environmentWarnings.add(line);
       continue;
     }
 
@@ -154,6 +182,7 @@ export function analyzeHeavyTestNoise(logText) {
     }
   }
 
+  report.environmentWarnings = [...environmentWarnings];
   return report;
 }
 
