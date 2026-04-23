@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComputerUseOfficialParentHandoffDiscovery } from "../../../types";
 import { ComputerUseStatusCard } from "./ComputerUseStatusCard";
@@ -208,6 +208,30 @@ describe("ComputerUseStatusCard", () => {
     expect(
       screen.getByText("settings.computerUse.loadFailed: ipc unavailable"),
     ).toBeTruthy();
+  });
+
+  it("tolerates a null workspace list from the runtime boundary", async () => {
+    listWorkspacesMock.mockResolvedValue(null);
+    useComputerUseBridgeStatusMock.mockReturnValue({
+      status: blockedMacStatus(),
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    useComputerUseActivationMock.mockReturnValue({
+      result: null,
+      isRunning: false,
+      error: null,
+      activate: vi.fn(),
+      reset: vi.fn(),
+    });
+
+    render(<ComputerUseStatusCard />);
+
+    await waitFor(() => {
+      expect(listWorkspacesMock).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByText("settings.computerUse.title")).toBeTruthy();
   });
 
   it("falls back to status-only surface when activation is disabled", () => {

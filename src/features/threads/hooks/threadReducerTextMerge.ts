@@ -636,16 +636,27 @@ function stripLeadingEchoFromSnapshot(existing: string, candidate: string) {
   return current;
 }
 
+function collapseMergedAssistantRepeats(value: string) {
+  if (!value.includes("\n") || value.includes("```") || value.includes("~~~")) {
+    return value;
+  }
+  return collapseNearDuplicateParagraphRepeats(value);
+}
+
 export function mergeAgentMessageText(existing: string, delta: string) {
-  const normalizedDelta = stripLeadingEchoFromSnapshot(
+  const snapshotCandidate = stripLeadingEchoFromSnapshot(
     existing,
     sanitizeTinyLeadingBreakDelta(existing, delta),
   );
+  const normalizedDelta =
+    existing && snapshotCandidate.startsWith(existing)
+      ? collapseNearDuplicateParagraphRepeats(snapshotCandidate)
+      : snapshotCandidate;
   if (!normalizedDelta) {
     return existing;
   }
   if (!existing) {
-    return normalizedDelta;
+    return collapseMergedAssistantRepeats(normalizedDelta);
   }
   const compactExisting = compactComparableStreamingText(existing);
   const compactDelta = compactComparableStreamingText(normalizedDelta);
@@ -658,13 +669,13 @@ export function mergeAgentMessageText(existing: string, delta: string) {
     deltaInlineCode.hasUnclosedInlineCode;
   if (compactExisting && compactDelta) {
     if (compactDelta === compactExisting) {
-      return chooseReadableText(existing, normalizedDelta);
+      return collapseMergedAssistantRepeats(chooseReadableText(existing, normalizedDelta));
     }
     if (compactDelta.startsWith(compactExisting) && normalizedDelta.length >= existing.length) {
-      return normalizedDelta;
+      return collapseMergedAssistantRepeats(normalizedDelta);
     }
     if (compactExisting.startsWith(compactDelta) && existing.length >= normalizedDelta.length) {
-      return existing;
+      return collapseMergedAssistantRepeats(existing);
     }
     if (
       !hasInlineCodeMergeRisk &&
@@ -677,16 +688,16 @@ export function mergeAgentMessageText(existing: string, delta: string) {
         firstIndex + Math.max(1, Math.floor(compactExisting.length / 2)),
       );
       if (firstIndex > 0 || secondIndex >= 0) {
-        return chooseReadableText(existing, normalizedDelta);
+        return collapseMergedAssistantRepeats(chooseReadableText(existing, normalizedDelta));
       }
-      return normalizedDelta;
+      return collapseMergedAssistantRepeats(normalizedDelta);
     }
     if (!hasInlineCodeMergeRisk) {
       const minComparableLength = Math.min(compactDelta.length, compactExisting.length);
       if (minComparableLength >= 24) {
         const sharedComparablePrefix = sharedPrefixLength(compactExisting, compactDelta);
         if (sharedComparablePrefix >= Math.floor(minComparableLength * 0.72)) {
-          return chooseReadableText(existing, normalizedDelta);
+          return collapseMergedAssistantRepeats(chooseReadableText(existing, normalizedDelta));
         }
         const existingTailAnchor = tailAnchor(compactExisting);
         if (
@@ -694,16 +705,16 @@ export function mergeAgentMessageText(existing: string, delta: string) {
           existingTailAnchor.length >= 8 &&
           compactDelta.includes(existingTailAnchor)
         ) {
-          return chooseReadableText(existing, normalizedDelta);
+          return collapseMergedAssistantRepeats(chooseReadableText(existing, normalizedDelta));
         }
       }
       const shiftedSnapshot = mergeShiftedSnapshot(existing, normalizedDelta);
       if (shiftedSnapshot) {
-        return chooseReadableText(existing, shiftedSnapshot);
+        return collapseMergedAssistantRepeats(chooseReadableText(existing, shiftedSnapshot));
       }
     }
   }
-  return mergeStreamingText(existing, normalizedDelta);
+  return collapseMergedAssistantRepeats(mergeStreamingText(existing, normalizedDelta));
 }
 
 function mergeReasoningText(existing: string, delta: string) {

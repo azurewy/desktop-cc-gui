@@ -174,6 +174,11 @@ type ThreadEventHandlersOptions = {
     itemId: string;
     text: string;
   }) => void;
+  onTurnCompletedExternal?: (payload: {
+    workspaceId: string;
+    threadId: string;
+    turnId: string;
+  }) => void;
   onCollaborationModeResolved?: (
     event: CollaborationModeResolvedRequest,
   ) => void;
@@ -245,6 +250,7 @@ export function useThreadEventHandlers({
   getActiveTurnIdForThread,
   renamePendingMemoryCaptureKey,
   onAgentMessageCompletedExternal,
+  onTurnCompletedExternal,
   onCollaborationModeResolved,
   onExitPlanModeToolCompleted,
 }: ThreadEventHandlersOptions) {
@@ -870,14 +876,17 @@ export function useThreadEventHandlers({
 
   const onTurnCompletedTracked = useCallback(
     (workspaceId: string, threadId: string, turnId: string) => {
-      onTurnCompleted(workspaceId, threadId, turnId);
+      const handled = onTurnCompleted(workspaceId, threadId, turnId);
+      if (handled) {
+        onTurnCompletedExternal?.({ workspaceId, threadId, turnId });
+      }
       const diagnostic = turnDiagnosticsRef.current.get(threadId);
       if (diagnostic && diagnostic.turnId !== turnId) {
         return;
       }
       finalizeTurnDiagnostic(threadId, "completed");
     },
-    [finalizeTurnDiagnostic, onTurnCompleted],
+    [finalizeTurnDiagnostic, onTurnCompleted, onTurnCompletedExternal],
   );
 
   const onTurnErrorTracked = useCallback(

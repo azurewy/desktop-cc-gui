@@ -168,7 +168,12 @@ function shouldEnableBroker(status: ComputerUseBridgeStatus | null) {
   return status.status === "ready" || hasOnlyManualPermissionBlockers(status);
 }
 
-function firstConnectedWorkspace(workspaces: WorkspaceInfo[]) {
+function firstConnectedWorkspace(
+  workspaces: WorkspaceInfo[] | null | undefined,
+) {
+  if (!Array.isArray(workspaces)) {
+    return null;
+  }
   return workspaces.find((workspace) => workspace.connected) ?? workspaces[0] ?? null;
 }
 
@@ -230,13 +235,14 @@ export function ComputerUseStatusCard() {
         if (cancelled) {
           return;
         }
-        setWorkspaces(nextWorkspaces);
+        const safeWorkspaces = Array.isArray(nextWorkspaces) ? nextWorkspaces : [];
+        setWorkspaces(safeWorkspaces);
         setWorkspaceLoadError(null);
         setSelectedWorkspaceId((currentWorkspaceId) => {
           if (currentWorkspaceId) {
             return currentWorkspaceId;
           }
-          const defaultWorkspace = firstConnectedWorkspace(nextWorkspaces);
+          const defaultWorkspace = firstConnectedWorkspace(safeWorkspaces);
           return defaultWorkspace?.id ?? "";
         });
       })
