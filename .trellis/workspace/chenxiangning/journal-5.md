@@ -535,3 +535,54 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 146: 补充 v0.4.8 CHANGELOG 发布说明
+
+**Date**: 2026-04-23
+**Task**: 补充 v0.4.8 CHANGELOG 发布说明
+**Branch**: `feature/v-0.4.8`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 基于 v0.4.7..HEAD 的真实提交，补充 CHANGELOG.md 中 v0.4.8 的发布说明。
+
+主要改动:
+- 在 CHANGELOG.md 顶部新增 2026年4月23日（v0.4.8）条目。
+- 保持既有中文/English 双语结构，以及 Features、Improvements、Fixes 三段分类。
+- 过滤 record journal 等会话记录提交，重点整理 large-file governance、heavy test noise sentry、模块拆分、warning surface 清理与稳定性修复。
+
+涉及模块:
+- CHANGELOG.md
+
+验证结果:
+- 已检查 git diff，确认仅包含 CHANGELOG.md 的单文件改动。
+- 已回看 CHANGELOG.md 顶部格式，确认与既有版本条目结构一致。
+- 未运行 lint/typecheck/test；本次仅为文档提交。
+
+后续事项:
+- 如需发布 v0.4.8，可继续基于该 changelog 整理 release notes 或 tag 说明。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `52ea36e6adecdbbad62f94ce99d248aae0c41f1b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
