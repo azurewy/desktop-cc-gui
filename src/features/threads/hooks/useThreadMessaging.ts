@@ -111,6 +111,20 @@ type RunWithCreateSessionLoading = <T>(
 const AGENT_PROMPT_HEADER = "## Agent Role and Instructions";
 const AGENT_PROMPT_NAME_PREFIX = "Agent Name:";
 const AGENT_PROMPT_ICON_PREFIX = "Agent Icon:";
+const isThreadMessagingTestMode = (() => {
+  try {
+    return import.meta.env.MODE === "test";
+  } catch {
+    return false;
+  }
+})();
+const shouldEmitThreadMessagingDevLogs = (() => {
+  try {
+    return import.meta.env.DEV && !isThreadMessagingTestMode;
+  } catch {
+    return false;
+  }
+})();
 
 type UseThreadMessagingOptions = {
   activeWorkspace: WorkspaceInfo | null;
@@ -604,7 +618,7 @@ export function useThreadMessaging({
             model: resolvedModel,
           },
         });
-        if (import.meta.env.DEV) {
+        if (shouldEmitThreadMessagingDevLogs) {
           console.warn("[model/sanitize]", {
             reason: "invalid-claude-model",
             model: resolvedModel,
@@ -643,7 +657,7 @@ export function useThreadMessaging({
           modelForSend: modelForSend ?? null,
         },
       });
-      if (import.meta.env.DEV) {
+      if (shouldEmitThreadMessagingDevLogs) {
         console.info("[model/resolve/send]", {
           threadId,
           engine: resolvedEngine,
@@ -733,7 +747,7 @@ export function useThreadMessaging({
               : null,
         },
       });
-      if (import.meta.env.DEV) {
+      if (shouldEmitThreadMessagingDevLogs) {
         console.info("[turn/start]", {
           workspaceId: workspace.id,
           threadId,
@@ -1279,7 +1293,7 @@ export function useThreadMessaging({
             });
           })
           .catch((err) => {
-            if (import.meta.env.DEV) {
+            if (shouldEmitThreadMessagingDevLogs) {
               console.warn("[project-memory] auto capture failed:", err);
             }
           });
