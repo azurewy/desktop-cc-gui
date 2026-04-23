@@ -700,3 +700,59 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 149: 强化中文提交与记录规则
+
+**Date**: 2026-04-23
+**Task**: 强化中文提交与记录规则
+**Branch**: `feature/v-0.4.8`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 修正本仓库提交规范的执行歧义，强制要求中文 Conventional Commit，并修复 Trellis 自动记录仍产出英文提交信息、误吸入 tasks 的问题。
+
+主要改动:
+- 在 AGENTS.md 新增 Git Commit Message Gate，明确 human/AI/Trellis metadata commit 默认都必须使用中文 Conventional Commits。
+- 更新 .trellis/workflow.md 的 commit 示例、禁止项与 quick reference，移除“AI should not commit code”的过期歧义表述。
+- 将 .trellis/config.yaml 与 .trellis/scripts/common/config.py 的 session commit message 默认值改为中文规范化标题 chore(trellis): 记录会话。
+- 收紧 .trellis/scripts/add_session.py 的自动 stage 边界，只提交 .trellis/workspace，避免 record commit 误吸入未提交 task 目录。
+
+涉及模块:
+- AGENTS.md
+- .trellis/workflow.md
+- .trellis/config.yaml
+- .trellis/scripts/common/config.py
+- .trellis/scripts/add_session.py
+
+验证结果:
+- git diff -- AGENTS.md .trellis/workflow.md .trellis/config.yaml .trellis/scripts/common/config.py .trellis/scripts/add_session.py
+- python3 -m py_compile .trellis/scripts/add_session.py .trellis/scripts/common/config.py
+- python3 内联校验 get_session_commit_message() 返回 chore(trellis): 记录会话
+
+后续事项:
+- 后续所有 AI 提交都应直接沿用该规则；若出现英文提交标题，应视为 workflow 违例而不是风格偏差。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d3c725f3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
