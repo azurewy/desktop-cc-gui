@@ -1178,3 +1178,64 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 157: Computer Use parent contract 阻塞状态产品化
+
+**Date**: 2026-04-23
+**Task**: Computer Use parent contract 阻塞状态产品化
+**Branch**: `feature/v-0.4.8`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## 任务目标
+
+继续推进 Computer Use 官方 parent contract 方向，在已确认 direct helper exec 不可行、官方 handoff API 未发现的前提下，把 `requires_official_parent` / `handoff_unavailable` 从诊断细节产品化为用户可理解的 blocked state。
+
+## 主要改动
+
+- 新建并完成 OpenSpec change `productize-computer-use-parent-contract-blocked-state`，明确本阶段不做 runtime integration、不新增后端 command、不尝试 helper/URL/XPC/private handoff。
+- 在 `ComputerUseStatusCard` 中从现有 host-contract diagnostics payload 派生 parent contract final verdict。
+- 当 final verdict 出现时，状态卡明确表达：macOS 侧 Codex / plugin / helper 证据可读，但当前宿主不是官方 Codex parent，不能直接运行官方 Computer Use helper。
+- final verdict 出现后隐藏重复 host-contract diagnostics 主按钮，仅保留 refresh，避免用户继续误点 activation/diagnostics。
+- `handoff_candidate_found` 保持 evidence-only，显示候选入口但不渲染 runtime enabled、不触发 activation retry。
+- 补齐中英文 i18n、组件测试与 `.trellis/spec/frontend/computer-use-bridge.md`。
+- 归档 OpenSpec change 到 `openspec/changes/archive/2026-04-23-productize-computer-use-parent-contract-blocked-state/`，同步主 specs。
+
+## 验证结果
+
+- `npx vitest run src/features/computer-use/components/ComputerUseStatusCard.test.tsx` 通过，9 tests passed。
+- `npm run typecheck` 通过。
+- `npm run lint` 通过。
+- `npm run check:large-files:gate` 通过，found=0。
+- `openspec validate productize-computer-use-parent-contract-blocked-state --type change --strict --no-interactive` 通过。
+- `openspec validate --all --strict --no-interactive` 通过，176 items passed。
+- `git diff --check` 通过。
+
+## 后续事项
+
+- 当前阶段到此应停止在 diagnostics-only：不继续 direct helper exec、不复制重签、不改官方 plugin/cache。
+- 若后续官方 Codex 暴露明确 Computer Use handoff/API，再另开 runtime integration proposal。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c3b1e9be` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
