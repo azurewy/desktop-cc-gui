@@ -363,3 +363,59 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 143: 清理 heavy 回归测试噪音并归档变更
+
+**Date**: 2026-04-23
+**Task**: 清理 heavy 回归测试噪音并归档变更
+**Branch**: `feature/v-0.4.8`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标：治理 heavy Vitest 全量回归中的 repo-owned 测试噪音，先通过 OpenSpec 建模，再直接落地实现与归档。
+
+主要改动：
+- 新建并归档 OpenSpec change `clean-heavy-test-noise-surface`，同步主 spec `openspec/specs/heavy-test-noise-cleanliness/spec.md`。
+- 修正 `AskUserQuestionDialog.test.tsx` 的 fake-timer 提交流程，避免 5 分钟倒计时 interval 造成 act storm。
+- 为 `useThreadMessaging.ts`、`composer/utils/debug.ts`、`search/perf/searchMetrics.ts` 增加 test-mode debug gate，清理 heavy suite stdout 调试输出。
+- 在 `SpecHub.test.tsx`、`useGlobalRuntimeNoticeDock.test.tsx`、`Sidebar.test.tsx` 中将 React act warning 收口到测试边界。
+- 为 `useGitStatus.test.tsx`、`detachedFileExplorer.test.ts`、`tauri.test.ts`、`Markdown.math-rendering.test.tsx` 增加局部 console spy/assert，收敛 expected stderr / library warning。
+
+涉及模块：
+- frontend tests: app / spec / notifications / git / files / services / messages
+- frontend debug instrumentation: threads / composer / search
+- specs: OpenSpec archived change + main capability spec
+
+验证结果：
+- `npm run lint` 通过
+- `npm run typecheck` 通过
+- 定向 Vitest 噪音回归通过，act/stdout/stderr 归零
+- `VITEST_INCLUDE_HEAVY=1 npm run test` 通过；repo-owned `act warnings=0`、`stdout markers=0`、`stderr markers=0`
+- heavy suite 剩余仅 1 条 environment-owned npm warning：`Unknown user config "electron_mirror"`
+
+后续事项：
+- 如需继续降噪，可单独治理本机 npm 环境 warning，但它不属于仓库代码责任。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4b08630546a7088e7075d17a85f42d1558171c66` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
